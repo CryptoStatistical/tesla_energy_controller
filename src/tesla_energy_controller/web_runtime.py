@@ -31,7 +31,8 @@ from .vimar import read_energy_points_from_settings as _default_read_energy_poin
 
 LOG = logging.getLogger("tesla_energy_controller.web")
 SERIES_BUCKET_SECONDS = 300
-SERIES_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 3
+SERIES_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 4
+ROLLING_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 3
 SOLAREDGE_MODBUS_CONNECT_GRACE = timedelta(minutes=5)
 SOLAREDGE_MODBUS_CONNECT_EVENT = "solaredge_modbus_connect_degraded"
 
@@ -162,7 +163,7 @@ def _series_weight(stamp: datetime, bucket_start: datetime) -> float:
 def _rolling_weight(sample_stamp: datetime, observed_at: datetime) -> float:
     age = (observed_at - sample_stamp).total_seconds()
     age = max(0.0, min(float(SERIES_BUCKET_SECONDS), age))
-    return math.exp(-age / SERIES_WEIGHT_TAU_SECONDS)
+    return math.exp(-age / ROLLING_WEIGHT_TAU_SECONDS)
 
 
 def _as_float(value) -> float | None:
@@ -173,19 +174,28 @@ def _as_float(value) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _weighted_value(entries: list[tuple[datetime, dict]], bucket_start: datetime, getter) -> float | None:
+def _weighted_samples(values: list[tuple[datetime, float]], bucket_start: datetime) -> float | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0][1]
+
     total = 0.0
     total_weight = 0.0
-    for stamp, row in entries:
-        value = _as_float(getter(row))
-        if value is None:
-            continue
+    for stamp, value in values:
         weight = _series_weight(stamp, bucket_start)
         total += value * weight
         total_weight += weight
-    if total_weight <= 0:
-        return None
     return total / total_weight
+
+
+def _weighted_value(entries: list[tuple[datetime, dict]], bucket_start: datetime, getter) -> float | None:
+    values = []
+    for stamp, row in entries:
+        value = _as_float(getter(row))
+        if value is not None:
+            values.append((stamp, value))
+    return _weighted_samples(values, bucket_start)
 
 
 def _series_buckets(rows: list[dict]) -> list[dict]:
@@ -1593,12 +1603,7 @@ class WebRuntime:
             value = _as_float(row.get("power_w"))
             if value is None:
                 continue
-            total, weight = bucket["devices"].get(name, (0.0, 0.0))
-            sample_weight = _series_weight(stamp, bucket_start)
-            bucket["devices"][name] = (
-                total + value * sample_weight,
-                weight + sample_weight,
-            )
+            bucket["devices"].setdefault(name, []).append((stamp, value))
         ordered = sorted(buckets.values(), key=lambda item: item["start"])
         labels = [bucket["start"].strftime("%H:%M") for bucket in ordered]
         names = sorted({name for bucket in ordered for name in bucket["devices"]})
@@ -1607,8 +1612,8 @@ class WebRuntime:
                 "name": name,
                 "data": [
                     (
-                        bucket["devices"][name][0] / bucket["devices"][name][1]
-                        if name in bucket["devices"] and bucket["devices"][name][1] > 0
+                        _weighted_samples(bucket["devices"][name], bucket["start"])
+                        if name in bucket["devices"]
                         else None
                     )
                     for bucket in ordered
@@ -1620,9 +1625,9 @@ class WebRuntime:
         if ordered:
             last_devices = ordered[-1]["devices"]
             latest = [
-                {"name": name, "power_w": values[0] / values[1]}
+                {"name": name, "power_w": _weighted_samples(values, ordered[-1]["start"])}
                 for name, values in sorted(last_devices.items())
-                if values[1] > 0
+                if values
             ]
         return {
             "days": days,
@@ -1675,7 +1680,7 @@ class WebRuntime:
                     ],
                 }
             ]
-        by_device: dict[str, list[list[float]]] = {}
+        by_device: dict[str, list[list[tuple[datetime, float]]]] = {}
         safe_names: dict[str, str] = {}
         for row in appliances:
             raw_name = str(row.get("name") or "")
@@ -1690,19 +1695,17 @@ class WebRuntime:
                 continue
             values = by_device.get(name)
             if values is None:
-                values = [[0.0, 0.0] for _ in labels]
+                values = [[] for _ in labels]
                 by_device[name] = values
-            weight = _series_weight(stamp, measurement_buckets[slot]["start"])
-            values[slot][0] += power_w * weight
-            values[slot][1] += weight
+            values[slot].append((stamp, power_w))
         for name in sorted(by_device):
             series.append(
                 {
                     "name": name,
                     "kind": "appliance",
                     "data": [
-                        total / weight if weight > 0 else None
-                        for total, weight in by_device[name]
+                        _weighted_samples(samples, measurement_buckets[index]["start"])
+                        for index, samples in enumerate(by_device[name])
                     ],
                 }
             )
@@ -1712,10 +1715,12 @@ class WebRuntime:
             latest = [
                 {
                     "name": name,
-                    "power_w": values[last_slot][0] / values[last_slot][1],
+                    "power_w": _weighted_samples(
+                        values[last_slot], measurement_buckets[last_slot]["start"]
+                    ),
                 }
                 for name, values in sorted(by_device.items())
-                if values[last_slot][1] > 0
+                if values[last_slot]
             ]
         try:
             anomaly_window_data = self.anomaly_window(
