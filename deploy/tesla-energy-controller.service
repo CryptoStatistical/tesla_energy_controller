@@ -1,0 +1,27 @@
+[Unit]
+Description=Tesla Energy Controller web e scheduler
+After=network-online.target tesla-energy-controller-network.service bluetooth.target time-sync.target
+Wants=network-online.target tesla-energy-controller-network.service bluetooth.target time-sync.target
+
+[Service]
+Type=simple
+User=tesla-energy
+Group=tesla-energy
+SupplementaryGroups=bluetooth
+WorkingDirectory=/opt/tesla-energy-controller
+EnvironmentFile=/opt/tesla-energy-controller/.env
+ExecStartPre=/usr/bin/test -x /usr/local/bin/tesla-control
+ExecStartPre=/usr/bin/test -r /opt/tesla-energy-controller/.secrets/tesla/private-key.pem
+ExecStart=/opt/tesla-energy-controller/.venv/bin/tesla-energy-controller web
+Restart=on-failure
+RestartSec=10
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/tesla-energy-controller/data /opt/tesla-energy-controller/.secrets
+
+[Install]
+WantedBy=multi-user.target

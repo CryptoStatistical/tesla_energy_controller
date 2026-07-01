@@ -1,0 +1,586 @@
+{% extends "base.html" %}
+{% macro metric(value, unit='', decimals=0) -%}
+  {% if value is none %}—{% else %}{{ (('%.' ~ decimals ~ 'f')|format(value|float)) }}{{ unit }}{% endif %}
+{%- endmacro %}
+{% block title %}Dashboard · Tesla Energy Controller{% endblock %}
+{% block content %}
+  {% set alfa_mode = current.alfa_grid_reading_enabled %}
+  {% set sample_seconds = hard.poll_interval_seconds %}
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">RASPBERRY LIVE</p>
+      <h1>Energy Monitor</h1>
+      <p class="muted">Campionamento {{ sample_seconds }}s · {{ hard.mode }} · {{ user.username }} ({{ user.role }})</p>
+    </div>
+    <div class="topbar-actions">
+      <button class="ghost theme-toggle" type="button" id="themeToggle" aria-label="Cambia tema">Tema scuro</button>
+      <form method="post" action="{{ url_for('logout') }}" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="ghost" type="submit">Esci</button>
+      </form>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sezioni">
+    <button class="tab-btn is-active" type="button" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
+    <button class="tab-btn" type="button" data-tab="appliances" role="tab" aria-selected="false">{{ 'Elettrodomestici' if alfa_mode else 'Device' }}</button>
+    <button class="tab-btn" type="button" data-tab="user" role="tab" aria-selected="false">User</button>
+    {% if can_configure %}
+      <button class="tab-btn" type="button" data-tab="log" role="tab" aria-selected="false">Log</button>
+      <button class="tab-btn" type="button" data-tab="backup" role="tab" aria-selected="false">Backup</button>
+      <button class="tab-btn" type="button" data-tab="settings" role="tab" aria-selected="false">Impostazioni</button>
+    {% endif %}
+  </nav>
+
+  {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+
+  <div
+    id="dashboardApp"
+    data-status-url="{{ url_for('api_status') }}"
+    data-runtime-url="{{ url_for('api_runtime') }}"
+    data-user-update-url="{{ url_for('update_user') }}"
+    data-user-delete-url="{{ url_for('delete_user') }}"
+    data-refresh-ms="{{ sample_seconds * 1000 }}"
+    data-alfa-grid-reading="{{ '1' if alfa_mode else '0' }}"
+  >
+  <div id="dashboardFeedback" class="feedback" role="status" aria-live="polite" hidden></div>
+  <div class="tab-panel is-active" id="tab-dashboard" role="tabpanel">
+    <section class="hero panel" aria-live="polite">
+      <div class="hero-status">
+        <span id="liveBadge" class="live-badge is-waiting">live</span>
+        {% set tconn = status.get('tesla_connected') %}
+        {% set wall_mode = hard.tesla_data_source == 'wall-connector' %}
+        {% set wall_unavailable = status.get('tesla_power_source') == 'wall-connector-unavailable' %}
+        {% set wall_active = status.get('wall_connector_contactor_closed') %}
+        {% set wall_vehicle = status.get('wall_connector_vehicle_connected') %}
+        {% set ble_control = status.get('tesla_ble_control_state', 'cached') %}
+        <span id="teslaConn" class="live-badge {{ 'is-ok' if tconn else ('is-waiting' if wall_mode else ('is-waiting' if tconn is none else 'is-error')) }}" title="{{ 'Rilevata dal Wall Connector' if wall_mode else 'Collegamento Tesla BLE' }}">{{ ('Tesla collegata' if tconn else 'Tesla scollegata') if wall_mode else ('Tesla connessa' if tconn else ('Tesla —' if tconn is none else 'Tesla offline')) }}</span>
+        <span id="chargeSource" class="live-badge {{ 'is-error' if wall_unavailable else ('is-ok' if wall_mode else ('is-ok' if tconn else ('is-waiting' if tconn is none else 'is-error'))) }}" title="Sorgente dati Tesla">{{ 'Wall Connector offline' if wall_unavailable else ('Wall Connector attivo' if wall_active else ('Wall Connector collegato' if wall_vehicle else 'Wall Connector standby')) if wall_mode else 'Bluetooth Tesla' }}</span>
+        <span id="bleControl" class="live-badge {{ 'is-ok' if ble_control == 'connected' else ('is-error' if ble_control == 'unreachable' else 'is-waiting') }}" title="{{ status.get('tesla_ble_control_message', 'Stato Bluetooth controllo') }}">{{ 'Bluetooth pronto' if ble_control == 'connected' else ('Bluetooth offline' if ble_control == 'unreachable' else ('Bluetooth standby' if ble_control == 'not-needed' else 'Bluetooth —')) }}</span>
+        <span id="statusDot" class="status-dot status-{{ status.state|default('waiting') }}"></span>
+        <span id="statusMessage" class="status-label">{{ status.message|default('In attesa della prima verifica') }}</span>
+        <p class="muted status-time">Ultima verifica: <time id="statusTime">{{ status.updated_at or 'mai' }}</time></p>
+        <p class="muted status-time">FV: <span id="solarSourceLabel">{{ current.solar_source }}</span> · uptime <span id="solarSourceUptime">servizio</span></p>
+      </div>
+      <div class="window-box">
+        {% if window %}
+          <div><span class="micro-label">Finestra solare</span><strong id="windowLabel">{{ window.label }}</strong><small id="windowMode">
+            {% if window.mode == 'sun' %}alba / tramonto{% else %}orario fisso{% endif %}
+          </small></div>
+          <span id="windowState" class="pill {{ 'active' if window.active else 'inactive' }}">
+            {{ 'ATTIVA' if window.active else 'FUORI ORARIO' }}
+          </span>
+        {% else %}<strong>Calendario non disponibile</strong>{% endif %}
+      </div>
+      <div class="controller-actions">
+        <form method="post" action="{{ url_for('controller_enabled') }}" class="toggle-form" data-async-form="controller">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          {% if current.enabled %}
+            <input type="hidden" name="enabled" value="0">
+            <button class="danger-button" type="submit">Spegni</button>
+          {% else %}
+            <input type="hidden" name="enabled" value="on">
+            <button class="primary" type="submit">Accendi</button>
+          {% endif %}
+        </form>
+        <form method="post" action="{{ url_for('run_now') }}" class="run-form" data-async-form="run-now">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="ghost" type="submit" title="Forza subito una lettura dei sensori e un ricalcolo della corrente.">Aggiorna</button>
+        </form>
+      </div>
+    </section>
+
+    {% if status.state == 'error' and status.get('debug') %}
+      <section class="panel debug-panel" aria-label="Diagnostica errore">
+        <div class="section-heading">
+          <div><p class="eyebrow">DIAGNOSTICA</p><h2>Dettagli errore</h2></div>
+          {% if status.get('email_report') %}<span class="hard-cap">{{ status.email_report }}</span>{% endif %}
+        </div>
+        <dl class="debug-grid">
+          <div><dt>Componente</dt><dd>{{ status.debug.get('component', '—') }}</dd></div>
+          <div><dt>Fase</dt><dd>{{ status.debug.get('phase', '—') }}</dd></div>
+          <div><dt>HTTP</dt><dd>{{ status.debug.get('status_code', '—') }}</dd></div>
+          <div><dt>Endpoint</dt><dd>{{ status.debug.get('endpoint', '—') }}</dd></div>
+        </dl>
+        {% if status.debug.get('hints') %}
+          <ul class="hint-list">
+            {% for hint in status.debug.hints %}<li>{{ hint }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+        {% if status.debug.get('response_excerpt') %}
+          <details class="debug-details">
+            <summary>Estratto risposta SolarEdge</summary>
+            <pre>{{ status.debug.response_excerpt }}</pre>
+          </details>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <section class="metrics">
+      <article class="metric panel" id="flowMetric"><span>Import (Export)</span><strong class="flow-value">{% set imp = (status.get('import_power_w') or 0)|round|int %}{% set exp = (status.get('export_power_w') or 0)|round|int %}{% if exp > 0 %}(<span class="flow-export">{{ exp }} W</span>){% else %}<span class="flow-import">{{ imp }} W</span>{% endif %}</strong></article>
+      <article class="metric panel" data-metric="solar_power_w" data-unit=" W"><span>Solare</span><strong class="m-solar">{{ metric(status.get('solar_power_w'), ' W') }}</strong></article>
+      {% if alfa_mode %}
+        <article class="metric panel" data-metric="appliances_power_w" data-unit=" W"><span>Elettrodomestici</span><strong>{{ metric(status.get('appliances_power_w'), ' W') }}</strong></article>
+      {% else %}
+        <article class="metric panel" data-metric="vimar_power_w" data-unit=" W"><span>Casa</span><strong class="m-casa">{{ metric(status.get('vimar_power_w'), ' W') }}</strong></article>
+      {% endif %}
+      <article class="metric panel" data-metric="tesla_power_w" data-unit=" W"><span>Tesla</span><strong>{{ metric(status.get('tesla_power_w'), ' W') }}</strong></article>
+      <article class="metric panel" data-metric="total_consumption_w" data-unit=" W"><span>Consumo Totale</span><strong>{{ metric(status.get('total_consumption_w'), ' W') }}</strong></article>
+      <article class="metric panel" data-metric="monthly_peak_import_w" data-unit=" W"><span>Quota Potenza</span><strong>{{ metric(monthly_peak_import_w|default(0), ' W') }}</strong></article>
+      <article class="metric panel" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><strong>{{ metric(status.get('target_a'), ' A') }}</strong></article>
+    </section>
+
+    <section class="panel chart-card" id="chartCard" data-series-url="{{ url_for('api_series') }}">
+      <div class="section-heading">
+        <div><p class="eyebrow">STORICO</p><h2>Andamento giornaliero</h2></div>
+        <span class="hard-cap" id="chartDay">—</span>
+      </div>
+      <div class="chart-box"><canvas id="dailyChart"></canvas></div>
+      <p class="muted chart-empty" id="chartEmpty" hidden>Nessuna misura registrata per questo giorno.</p>
+      <div class="slider-row">
+        <label class="slider-label" for="daySlider">Giorno</label>
+        <input type="range" id="daySlider" min="0" max="0" step="1" value="0" disabled>
+        <div class="day-nav">
+          <button class="day-step" type="button" data-day-step="-1" aria-label="Giorno precedente" title="Giorno precedente">&lt;</button>
+          <button class="day-step" type="button" data-day-step="1" aria-label="Giorno successivo" title="Giorno successivo">&gt;</button>
+          <output id="dayOut" for="daySlider">—</output>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel compact-details">
+      <details>
+        <summary>Stato Tesla · VIN
+          <button
+            class="vin-hl vin-copy"
+            type="button"
+            data-vin="{{ hard.tesla_vin or '' }}"
+            data-masked="{{ masked_vin }}"
+            aria-label="Mostra e copia VIN"
+            title="Mostra e copia VIN"
+          >{{ masked_vin }}</button>
+        </summary>
+        <dl class="status-grid">
+          <div><dt>Sorgente dati</dt><dd data-charge-field="source">{{ 'Wall Connector' if wall_mode else 'Bluetooth Tesla' }}</dd></div>
+          {% if wall_mode %}
+            <div><dt>Host</dt><dd data-charge-field="host">{{ hard.wall_connector_host or 'non configurato' }}</dd></div>
+            <div><dt>Veicolo</dt><dd data-charge-field="vehicle">{{ 'collegato' if wall_vehicle else 'scollegato' }}</dd></div>
+            <div><dt>Contattore</dt><dd data-charge-field="contactor">{{ 'chiuso' if wall_active else 'aperto' }}</dd></div>
+            <div><dt>EVSE</dt><dd data-charge-field="evse">{{ status.get('wall_connector_evse_state', '—') }}</dd></div>
+            <div><dt>Polling</dt><dd data-charge-field="polling">{{ hard.wall_connector_poll_interval_seconds }}s</dd></div>
+          {% endif %}
+          <div><dt>Controllo BLE</dt><dd data-charge-field="ble_status">{{ status.get('tesla_ble_control_message', 'Bluetooth non interrogato') }}</dd></div>
+          <div><dt>Trasporto BLE</dt><dd data-ble-field="transport">{{ tesla_ble.transport }}</dd></div>
+          <div><dt>Adapter BLE</dt><dd data-ble-field="adapter">{{ tesla_ble.adapter }}</dd></div>
+          <div><dt>Chiave BLE</dt><dd data-ble-field="key_configured">{{ 'configurata' if tesla_ble.key_configured else 'mancante' }}</dd></div>
+        </dl>
+      </details>
+      <details>
+        <summary>Ultime notifiche</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ora</th><th>Livello</th><th>Evento</th><th>Messaggio</th><th>Dettagli</th></tr></thead>
+            <tbody id="eventsTableBody">
+              {% for event in events %}
+                <tr>
+                  <td>{{ event.observed_at }}</td>
+                  <td>{{ event.level }}</td>
+                  <td>{{ event.kind }}</td>
+                  <td>{{ event.message }}</td>
+                  <td>
+                    {% if event.details_json and event.details_json != '{}' %}
+                      <details class="event-details"><summary>Apri</summary><pre>{{ event.details_json }}</pre></details>
+                    {% else %}—{% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5">Nessun evento registrato.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+  </div>
+
+  <div class="tab-panel" id="tab-appliances" role="tabpanel">
+    <section class="panel chart-card" id="applianceCard" data-series-url="{{ url_for('api_device_series') }}">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">STORICO {{ 'ELETTRODOMESTICI' if alfa_mode else 'DEVICE' }}</p>
+          <h2>{{ 'Serie per fonte ed elettrodomestico' if alfa_mode else 'Serie per fonte e dispositivo' }}</h2>
+        </div>
+        <span class="hard-cap" id="applianceDay">—</span>
+      </div>
+      <div class="chart-box"><canvas id="applianceChart"></canvas></div>
+      <p class="muted chart-empty" id="applianceEmpty" hidden>{{ 'Nessun dato storico degli elettrodomestici' if alfa_mode else 'Nessun dato storico device' }} per questo giorno.</p>
+      <div class="slider-row">
+        <label class="slider-label" for="applianceSlider">Giorno</label>
+        <input type="range" id="applianceSlider" min="0" max="0" step="1" value="0" disabled>
+        <div class="day-nav">
+          <button class="day-step" type="button" data-day-step="-1" aria-label="Giorno precedente" title="Giorno precedente">&lt;</button>
+          <button class="day-step" type="button" data-day-step="1" aria-label="Giorno successivo" title="Giorno successivo">&gt;</button>
+          <output id="applianceDayOut" for="applianceSlider">—</output>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel table-panel collapsible-panel">
+      <details>
+        <summary><span><p class="eyebrow">ANALISI</p><h2>Picchi anomali</h2></span></summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ora</th><th>Dispositivo</th><th>Gruppo</th><th>Picco</th><th>Soglia</th></tr></thead>
+            <tbody id="anomalyTableBody">
+              <tr><td colspan="5" class="muted">Nessun picco anomalo rilevato.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel table-panel collapsible-panel">
+      <details>
+        <summary><span><p class="eyebrow">DETTAGLIO</p><h2>Ultime letture Vimar</h2></span></summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Dispositivo</th><th>Consumo</th></tr></thead>
+            <tbody id="applianceTableBody">
+              <tr><td colspan="2" class="muted">Caricamento…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-user" role="tabpanel">
+    <section class="panel settings-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">ACCOUNT</p><h2>User</h2></div>
+        <span class="hard-cap" id="accountRole">{{ user.role }}</span>
+      </div>
+      <dl class="status-grid account-grid">
+        <div><dt>Username</dt><dd id="accountUsername">{{ user.username or '—' }}</dd></div>
+        <div><dt>Email</dt><dd id="accountEmail">{{ user.email or '—' }}</dd></div>
+        <div><dt>Ruolo</dt><dd id="accountRoleValue">{{ user.role }}</dd></div>
+      </dl>
+
+      <form method="post" action="{{ url_for('update_account') }}" data-async-form="account" autocomplete="off">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="form-grid">
+          <div class="wide-field">
+            <label for="account_email_edit">Email notifiche</label>
+            <input id="account_email_edit" name="email" type="email" autocomplete="off" value="{{ user.email or '' }}" placeholder="utente@example.com">
+          </div>
+        </div>
+        <p class="hint">Se il tuo utente e' admin, questa email riceve anche le notifiche evento/errori insieme ai destinatari configurati.</p>
+        <div class="actions"><button class="primary" type="submit">Salva profilo</button></div>
+      </form>
+
+      <form method="post" action="{{ url_for('change_password') }}" data-async-form="password" autocomplete="off">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <details class="subsection security-section" open>
+          <summary>Cambio password</summary>
+          <div class="form-grid">
+            <div>
+              <label for="current_password">Password attuale</label>
+              <input id="current_password" name="current_password" type="password" autocomplete="off" required>
+            </div>
+            <div>
+              <label for="new_password">Nuova password</label>
+              <input id="new_password" name="new_password" type="password" autocomplete="off" minlength="8" required>
+            </div>
+            <div>
+              <label for="confirm_password">Conferma password</label>
+              <input id="confirm_password" name="confirm_password" type="password" autocomplete="off" minlength="8" required>
+            </div>
+          </div>
+          <p class="hint">La password viene salvata come hash locale e i campi restano vuoti dopo il cambio.</p>
+          <div class="actions"><button class="primary" type="submit">Cambia password</button></div>
+        </details>
+      </form>
+    </section>
+
+    {% if can_configure %}
+      <section class="panel table-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">ADMIN</p><h2>Gestione utenti</h2></div>
+          <span class="hard-cap">Accesso locale Raspberry</span>
+        </div>
+        <form method="post" action="{{ url_for('create_user') }}" data-async-form="create-user" autocomplete="off">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-grid">
+            <div>
+              <label for="new_user_email">Email</label>
+              <input id="new_user_email" name="email" type="email" autocomplete="off" placeholder="utente@example.com">
+            </div>
+            <div>
+              <label for="new_user_username">Username</label>
+              <input id="new_user_username" name="username" type="text" autocomplete="off" placeholder="vuoto = email">
+            </div>
+            <div>
+              <label for="new_user_role">Ruolo</label>
+              <select id="new_user_role" name="role">
+                <option value="viewer" selected>viewer</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint">Gli utenti viewer vedono dashboard, {{ 'elettrodomestici' if alfa_mode else 'device' }} e profilo; settings e log restano disponibili solo agli admin.</p>
+          <div class="generated-password" id="generatedPasswordBox" hidden>
+            <span>Password temporanea per <strong id="generatedUsername">—</strong></span>
+            <code id="generatedPasswordValue"></code>
+          </div>
+          <div class="actions"><button class="primary" type="submit">Crea utente</button></div>
+        </form>
+        <div class="table-wrap user-table">
+          <table>
+            <thead><tr><th>Username</th><th>Email</th><th>Ruolo</th><th>Azioni</th></tr></thead>
+            <tbody id="usersTableBody">
+              {% for item in users %}
+                <tr>
+                  <td>{{ item.username }}</td>
+                  <td>
+                    <form method="post" action="{{ url_for('update_user') }}" data-async-form="update-user" autocomplete="off" id="user-update-{{ loop.index }}">
+                      <input type="hidden" name="csrf" value="{{ csrf }}">
+                      <input type="hidden" name="username" value="{{ item.username }}">
+                      <input name="email" type="email" autocomplete="off" value="{{ item.email or '' }}" placeholder="utente@example.com" aria-label="Email {{ item.username }}">
+                    </form>
+                  </td>
+                  <td>
+                    <select name="role" form="user-update-{{ loop.index }}" aria-label="Ruolo {{ item.username }}">
+                      <option value="viewer" {% if item.role == 'viewer' %}selected{% endif %}>viewer</option>
+                      <option value="admin" {% if item.role == 'admin' %}selected{% endif %}>admin</option>
+                    </select>
+                  </td>
+                  <td class="user-actions">
+                    <button class="ghost compact-button" type="submit" form="user-update-{{ loop.index }}">Salva</button>
+                    <form method="post" action="{{ url_for('delete_user') }}" data-async-form="delete-user" class="inline-form">
+                      <input type="hidden" name="csrf" value="{{ csrf }}">
+                      <input type="hidden" name="username" value="{{ item.username }}">
+                      <button class="danger-button compact-button" type="submit" {% if item.username == user.username %}disabled title="Non puoi cancellare il tuo utente"{% endif %}>Cancella</button>
+                    </form>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="muted">Nessun utente configurato.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+
+  {% if can_configure %}
+  <div class="tab-panel" id="tab-log" role="tabpanel">
+    <section class="panel table-panel collapsible-panel">
+      <details open>
+        <summary><span><p class="eyebrow">LOG</p><h2>Error Log</h2></span></summary>
+        {% if can_configure %}
+          <form method="post" action="{{ url_for('clear_error_log') }}" class="inline-form log-actions" data-async-form="clear-log">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="danger-button" type="submit">Cancella Error Log</button>
+          </form>
+        {% endif %}
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ora</th><th>Evento</th><th>Messaggio</th><th>Dettagli</th></tr></thead>
+            <tbody id="errorLogTableBody">
+              {% for event in error_events %}
+                <tr>
+                  <td>{{ event.observed_at }}</td>
+                  <td>{{ event.kind }}</td>
+                  <td>{{ event.message }}</td>
+                  <td>
+                    {% if event.details_json and event.details_json != '{}' %}
+                      <details class="event-details"><summary>Apri</summary><pre>{{ event.details_json }}</pre></details>
+                    {% else %}—{% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="muted">Nessun errore registrato.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </div>
+  {% endif %}
+
+  {% if can_configure %}
+  <div class="tab-panel" id="tab-backup" role="tabpanel">
+    <section class="panel settings-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">BACKUP</p><h2>Esporta database e configurazioni</h2></div>
+        <span class="hard-cap">Solo admin</span>
+      </div>
+      <p class="hint">Scarica o ripristina un archivio ZIP con snapshot SQLite consistente e/o configurazione locale. Gli archivi con configurazione possono contenere credenziali: conservarli in modo sicuro.</p>
+      <dl class="status-grid account-grid">
+        <div><dt>Database</dt><dd>{{ hard.energy_database_file }}</dd></div>
+        <div><dt>Runtime</dt><dd>{{ hard.runtime_settings_file }}</dd></div>
+        <div><dt>Configurazione</dt><dd>.env locale, se presente</dd></div>
+        <div><dt>Formato</dt><dd>ZIP + manifest.json</dd></div>
+      </dl>
+      <h3>Esporta backup</h3>
+      <form method="post" action="{{ url_for('export_backup') }}" class="backup-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="switch-row" for="backup_include_db">
+          <span><strong>Includi database</strong><small>Misure, eventi e utenti locali da SQLite.</small></span>
+          <input id="backup_include_db" name="include_db" type="checkbox" value="on" checked>
+        </label>
+        <label class="switch-row" for="backup_include_config">
+          <span><strong>Includi configurazione</strong><small>Runtime settings, `.env` e file locali referenziati dalla configurazione.</small></span>
+          <input id="backup_include_config" name="include_config" type="checkbox" value="on" checked>
+        </label>
+        <div class="actions"><button class="primary" type="submit">Scarica backup</button></div>
+      </form>
+      <div class="subsection">
+        <h3>Importa backup</h3>
+        <p class="hint">Carica uno ZIP generato da questa dashboard e scegli cosa ripristinare. Le parti selezionate sostituiscono i dati locali correnti.</p>
+        <form method="post" action="{{ url_for('import_backup') }}" enctype="multipart/form-data" class="backup-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-grid">
+            <div class="wide-field">
+              <label for="backup_file">File backup ZIP</label>
+              <input id="backup_file" name="backup_file" type="file" accept=".zip,application/zip" required>
+            </div>
+          </div>
+          <label class="switch-row" for="backup_restore_db">
+            <span><strong>Ripristina database</strong><small>Sostituisce misure, eventi e utenti locali SQLite.</small></span>
+            <input id="backup_restore_db" name="restore_db" type="checkbox" value="on" checked>
+          </label>
+          <label class="switch-row" for="backup_restore_config">
+            <span><strong>Ripristina configurazione</strong><small>Sostituisce runtime settings, `.env` e file locali referenziati presenti nello ZIP.</small></span>
+            <input id="backup_restore_config" name="restore_config" type="checkbox" value="on" checked>
+          </label>
+          <div class="actions"><button class="danger-button" type="submit">Importa backup</button></div>
+        </form>
+      </div>
+    </section>
+  </div>
+  {% endif %}
+
+  {% if can_configure %}
+    <div class="tab-panel" id="tab-settings" role="tabpanel">
+      <section class="panel settings-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">AUTOMAZIONE</p><h2>Configurazione operativa</h2></div>
+          <span class="hard-cap">Limite hardware {{ hard.max_charge_amps }} A</span>
+        </div>
+        <form method="post" action="{{ url_for('save_settings') }}" data-async-form="settings">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="enabled" value="{{ 'on' if current.enabled else '' }}">
+
+          <div class="subsection"><h3>Finestra solare</h3><div class="form-grid">
+            <div><label for="schedule_mode">Modalità calendario</label><select id="schedule_mode" name="schedule_mode">
+              <option value="fixed" {% if current.schedule_mode == 'fixed' %}selected{% endif %}>Orario fisso</option>
+              <option value="sun" {% if current.schedule_mode == 'sun' %}selected{% endif %}>Alba e tramonto</option>
+            </select></div>
+            <div><label for="fixed_start_time">Inizio fisso</label><input id="fixed_start_time" name="fixed_start_time" type="time" value="{{ current.fixed_start_time }}" required></div>
+            <div><label for="fixed_end_time">Fine fissa</label><input id="fixed_end_time" name="fixed_end_time" type="time" value="{{ current.fixed_end_time }}" required></div>
+            <div><label for="sunrise_offset_minutes">Offset alba (min)</label><input id="sunrise_offset_minutes" name="sunrise_offset_minutes" type="number" min="-180" max="180" value="{{ current.sunrise_offset_minutes }}" required></div>
+            <div><label for="sunset_offset_minutes">Offset tramonto (min)</label><input id="sunset_offset_minutes" name="sunset_offset_minutes" type="number" min="-180" max="180" value="{{ current.sunset_offset_minutes }}" required></div>
+          </div><p class="hint">Posizione fissa: <strong>Vittorio Veneto (TV)</strong>{% if hard.solar_latitude is not none %} · {{ '%.4f'|format(hard.solar_latitude) }}°, {{ '%.4f'|format(hard.solar_longitude) }}°{% endif %} · fuso {{ hard.solar_timezone }}. In alba/tramonto gli offset restringono ulteriormente la finestra.</p></div>
+
+          <div class="subsection"><h3>Ricarica</h3><div class="form-grid">
+            <div>
+              <label for="solar_source">Fotovoltaico</label>
+              <select id="solar_source" name="solar_source">
+                <option value="solaredge-web" {% if current.solar_source == 'solaredge-web' %}selected{% endif %}>SolarEdge web</option>
+                <option value="solaredge-modbus" {% if current.solar_source == 'solaredge-modbus' %}selected{% endif %}>SolarEdge Modbus TCP</option>
+                {% if current.solar_source == 'solaredge-cloud' or hard.energy_source == 'solaredge-cloud' %}
+                  <option value="solaredge-cloud" {% if current.solar_source == 'solaredge-cloud' %}selected{% endif %}>SolarEdge cloud API</option>
+                {% endif %}
+                {% if current.solar_source == 'alfa-modbus' or hard.energy_source == 'alfa-modbus' %}
+                  <option value="alfa-modbus" {% if current.solar_source == 'alfa-modbus' %}selected{% endif %}>ALFA Modbus</option>
+                {% endif %}
+                {% if current.solar_source == 'mock' or hard.energy_source == 'mock' %}
+                  <option value="mock" {% if current.solar_source == 'mock' %}selected{% endif %}>Mock locale</option>
+                {% endif %}
+              </select>
+              <span class="field-note">Modbus: {{ hard.solaredge_modbus_host or 'host non configurato' }}:{{ hard.solaredge_modbus_port }} · ogni {{ hard.solaredge_modbus_poll_interval_seconds }}s</span>
+            </div>
+            {% if alfa_mode %}
+            <div>
+              <label for="power_quota_target_kw">Obiettivo quota potenza (kW)</label>
+              <input id="power_quota_target_kw" name="power_quota_target_kw" type="number" min="0.1" step="0.1" value="{{ '%.1f'|format(current.power_quota_target_w / 1000) }}" required>
+            </div>
+            {% else %}
+            <input name="power_quota_target_w" type="hidden" value="{{ current.power_quota_target_w }}">
+            {% endif %}
+            <div>
+              <label for="extra_grid_power_a">Extra rete (A)</label>
+              {% set extra_amps = current.extra_grid_power_w / (hard.nominal_phase_voltage_v * hard.expected_phases) %}
+              <input id="extra_grid_power_a" name="extra_grid_power_a" type="number" min="0" step="0.1" value="{{ '%.1f'|format(extra_amps) }}" required>
+              <span class="field-note" id="extraGridKw" data-voltage="{{ hard.nominal_phase_voltage_v }}" data-phases="{{ hard.expected_phases }}">≈ {{ '%.2f'|format(current.extra_grid_power_w / 1000) }} kW</span>
+            </div>
+            <div><label for="manual_override_amps">Override manuale da (A)</label><input id="manual_override_amps" name="manual_override_amps" type="number" min="{{ hard.min_charge_amps }}" max="{{ hard.max_charge_amps }}" value="{{ current.manual_override_amps }}" required></div>
+            <div><label for="min_charge_amps">Corrente minima (A)</label><input id="min_charge_amps" name="min_charge_amps" type="number" min="1" max="{{ hard.max_charge_amps }}" value="{{ current.min_charge_amps }}" required></div>
+          </div></div>
+
+          <div class="subsection"><h3>Anomalie {{ 'elettrodomestici' if alfa_mode else 'device' }}</h3><div class="form-grid">
+            <label class="switch-row wide-field" for="error_email_enabled">
+              <span><strong>Invia mail errori</strong><small>Invia un report dettagliato quando un errore entra nell'Error Log.</small></span>
+              <input id="error_email_enabled" name="error_email_enabled" type="checkbox" value="on" {% if current.error_email_enabled %}checked{% endif %}>
+            </label>
+            <label class="switch-row wide-field" for="anomaly_email_enabled">
+              <span><strong>Invia mail anomalie</strong><small>Invia una segnalazione quando un {{ 'elettrodomestico' if alfa_mode else 'device' }} supera la soglia del suo gruppo.</small></span>
+              <input id="anomaly_email_enabled" name="anomaly_email_enabled" type="checkbox" value="on" {% if current.anomaly_email_enabled %}checked{% endif %}>
+            </label>
+            <div>
+              <label for="anomaly_window_mode">Finestra picchi</label>
+              <select id="anomaly_window_mode" name="anomaly_window_mode">
+                <option value="sunset_sunrise" {% if current.anomaly_window_mode == 'sunset_sunrise' %}selected{% endif %}>tramonto / alba</option>
+                <option value="fixed" {% if current.anomaly_window_mode == 'fixed' %}selected{% endif %}>range fisso</option>
+              </select>
+            </div>
+            <div>
+              <label for="anomaly_fixed_start_time">Inizio fisso</label>
+              <input id="anomaly_fixed_start_time" name="anomaly_fixed_start_time" type="time" value="{{ current.anomaly_fixed_start_time }}" required>
+            </div>
+            <div>
+              <label for="anomaly_fixed_end_time">Fine fissa</label>
+              <input id="anomaly_fixed_end_time" name="anomaly_fixed_end_time" type="time" value="{{ current.anomaly_fixed_end_time }}" required>
+            </div>
+          </div></div>
+
+          <details class="subsection advanced-config">
+            <summary>Advanced configuration</summary>
+            <div class="form-grid">
+              <label class="switch-row wide-field" for="alfa_grid_reading_enabled">
+                <span><strong>Attiva Lettura rete da ALFA Sinapsi</strong><small>Usa import ed export reali del contatore per ricostruire Casa e regolare la Tesla.</small></span>
+                <input id="alfa_grid_reading_enabled" name="alfa_grid_reading_enabled" type="checkbox" value="on" {% if alfa_mode %}checked{% endif %}>
+              </label>
+              <div><label for="min_voltage_v">Tensione minima (V)</label><input id="min_voltage_v" name="min_voltage_v" type="number" min="{{ hard.min_voltage_v }}" max="{{ hard.max_voltage_v }}" value="{{ current.min_voltage_v|int }}" required></div>
+              <div><label for="max_voltage_v">Tensione massima (V)</label><input id="max_voltage_v" name="max_voltage_v" type="number" min="{{ hard.min_voltage_v }}" max="{{ hard.max_voltage_v }}" value="{{ current.max_voltage_v|int }}" required></div>
+              <div><label for="command_hysteresis_a">Isteresi (A)</label><input id="command_hysteresis_a" name="command_hysteresis_a" type="number" min="1" max="5" value="{{ current.command_hysteresis_a }}" required></div>
+              <div><label for="max_ramp_up_a">Aumento per ciclo (A)</label><input id="max_ramp_up_a" name="max_ramp_up_a" type="number" min="1" max="{{ hard.max_ramp_up_a }}" value="{{ current.max_ramp_up_a }}" required></div>
+              <div><label for="power_quota_hysteresis_kw">Margine quota (kW)</label><input id="power_quota_hysteresis_kw" name="power_quota_hysteresis_kw" type="number" min="0" max="5" step="0.1" value="{{ '%.1f'|format(current.power_quota_hysteresis_w / 1000) }}" required></div>
+              <div><label for="tesla_ble_connect_timeout_seconds">BLE · Timeout connessione (s)</label><input id="tesla_ble_connect_timeout_seconds" name="tesla_ble_connect_timeout_seconds" type="number" min="5" max="90" value="{{ current.tesla_ble_connect_timeout_seconds }}" required></div>
+              <div><label for="tesla_ble_command_timeout_seconds">BLE · Timeout comando (s)</label><input id="tesla_ble_command_timeout_seconds" name="tesla_ble_command_timeout_seconds" type="number" min="3" max="60" value="{{ current.tesla_ble_command_timeout_seconds }}" required></div>
+              <div><label for="tesla_ble_retries">BLE · Retry</label><input id="tesla_ble_retries" name="tesla_ble_retries" type="number" min="0" max="5" value="{{ current.tesla_ble_retries }}" required></div>
+              <div class="wide-field">
+                <label for="anomaly_device_groups">Gruppi soglie {{ 'elettrodomestici' if alfa_mode else 'device' }}</label>
+                <textarea id="anomaly_device_groups" name="anomaly_device_groups" rows="5" required>{{ current.anomaly_device_groups }}</textarea>
+                <p class="hint">Formato: Nome gruppo | soglia kW | {{ 'elettrodomestico, elettrodomestico' if alfa_mode else 'device, device' }}. I picchi vengono mostrati in {{ 'Elettrodomestici' if alfa_mode else 'Device' }} solo dentro la finestra configurata, senza notifiche.</p>
+              </div>
+            </div>
+            <label class="switch-row" for="tesla_ble_recovery_enabled">
+              <span><strong>Recovery adapter Bluetooth</strong><small>Esegue reset bluetoothctl power off/on dopo errori BLE ripetuti.</small></span>
+              <input id="tesla_ble_recovery_enabled" name="tesla_ble_recovery_enabled" type="checkbox" value="on" {% if current.tesla_ble_recovery_enabled %}checked{% endif %}>
+            </label>
+          </details>
+          <div class="actions"><button class="primary" type="submit">Salva configurazione</button></div>
+        </form>
+      </section>
+    </div>
+  {% endif %}
+  </div>
+
+  <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+{% endblock %}

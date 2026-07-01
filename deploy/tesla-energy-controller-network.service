@@ -1,0 +1,15 @@
+[Unit]
+Description=Tesla Energy Controller Raspberry network bootstrap
+Wants=network-online.target
+After=network-online.target
+Before=tesla-energy-controller.service tesla-energy-controller-tuya.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/tesla-energy-controller-network
+ExecStart=/usr/local/sbin/tesla-energy-controller-network apply
+ExecStop=/usr/local/sbin/tesla-energy-controller-network remove
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
