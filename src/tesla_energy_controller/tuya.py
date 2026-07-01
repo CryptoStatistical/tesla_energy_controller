@@ -379,10 +379,7 @@ class TuyaEnergyMeterBridge:
             float(latest.get("total_consumption_w") or 0.0) - tesla_power_w,
             0.0,
         )
-        if tesla_power_w > 0:
-            tesla_state = "charging"
-        else:
-            tesla_state = "disconnected"
+        tesla_state = self._tuya_database_tesla_state(latest, tesla_power_w)
 
         return {
             "meter_switch": self.meter_enabled,
@@ -513,12 +510,33 @@ class TuyaEnergyMeterBridge:
                 if key in set(str(item) for item in requested)
             }
         client.respond_property_get(msg_id, properties)
+        if hasattr(client, "report_properties"):
+            client.report_properties(self.properties())
 
     def handle_message(self, client: TuyaLinkMqttClient, message: MqttMessage) -> None:
         if message.topic == client.property_set_topic:
             self.handle_property_set(client, message)
         elif message.topic == client.property_get_topic:
             self.handle_property_get(client, message)
+
+    @staticmethod
+    def _tuya_database_tesla_state(row: dict[str, Any], tesla_power_w: float) -> str:
+        def number(value: Any) -> float | None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        current_a = number(row.get("tesla_current_a"))
+        if current_a is not None:
+            if current_a >= 1.0:
+                return "charging"
+            return "idle" if tesla_power_w > 0 else "disconnected"
+        if tesla_power_w >= 500:
+            return "charging"
+        if tesla_power_w > 0:
+            return "idle"
+        return "disconnected"
 
     @staticmethod
     def _tuya_tesla_state(charging_state: str) -> str:

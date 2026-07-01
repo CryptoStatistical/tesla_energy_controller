@@ -157,6 +157,35 @@ def test_property_get_returns_requested_values_only():
     ]
 
 
+def test_property_get_also_reports_full_current_values():
+    class Client:
+        property_get_topic = "tylink/device123/thing/property/get"
+
+        def __init__(self):
+            self.responses = []
+            self.reports = []
+
+        def respond_property_get(self, msg_id, properties):
+            self.responses.append((msg_id, properties))
+
+        def report_properties(self, properties):
+            self.reports.append(properties)
+
+    settings = SimpleNamespace(energy_source="mock", tuya_average_samples=1)
+    bridge = TuyaEnergyMeterBridge(settings=settings, controller=None, meter_enabled=True)
+    client = Client()
+    message = MqttMessage(
+        client.property_get_topic,
+        json.dumps({"msgId": "get-1", "data": ["meter_switch"]}).encode(),
+    )
+
+    bridge.handle_property_get(client, message)
+
+    assert client.responses == [("get-1", {"meter_switch": True})]
+    assert client.reports[-1]["meter_switch"] is True
+    assert "tesla_state" in client.reports[-1]
+
+
 def test_properties_are_averaged_over_configured_samples():
     class Grid:
         def __init__(self):
@@ -249,6 +278,42 @@ def test_tuya_uses_latest_sqlite_measurement_without_live_polling(tmp_path):
     assert properties["total_consumption_w"] == 5200
     assert properties["tesla_state"] == "charging"
     assert properties["meter_fault"] == 0
+
+
+def test_tuya_sqlite_wall_connector_standby_is_idle(tmp_path):
+    database_file = tmp_path / "energy.sqlite3"
+    database = EnergyDatabase(str(database_file))
+    database.add_measurement(
+        {
+            "observed_at": "2026-07-01T22:12:11+02:00",
+            "solar_power_w": 0,
+            "vimar_power_w": 712,
+            "tesla_power_w": 105,
+            "total_consumption_w": 1059,
+            "import_power_w": 1059,
+            "export_power_w": 0,
+            "tesla_current_a": 0.4,
+            "controller_enabled": True,
+            "action": "outside-window",
+            "reason": "Fuori dalla finestra solare 05:24-21:04",
+        },
+        [],
+    )
+
+    settings = SimpleNamespace(
+        energy_source="mock",
+        energy_database_file=str(database_file),
+        tuya_average_samples=1,
+        tuya_report_tesla=False,
+    )
+    bridge = TuyaEnergyMeterBridge(settings=settings, controller=None)
+
+    properties = bridge.properties()
+
+    assert properties["house_consumption_w"] == 954
+    assert properties["tesla_power_w"] == 105
+    assert properties["total_consumption_w"] == 1059
+    assert properties["tesla_state"] == "idle"
 
 
 def test_tuya_can_report_meter_values_without_reading_tesla():
