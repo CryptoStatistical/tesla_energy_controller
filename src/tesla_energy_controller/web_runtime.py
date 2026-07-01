@@ -285,6 +285,8 @@ class WebRuntime:
         self._monthly_peak_cache: tuple[str, float] | None = None
         self._rolling_samples: list[tuple[datetime, dict, list[dict]]] = []
         self._solaredge_modbus_down_since: datetime | None = None
+        self._last_appliances: list[dict] = []
+        self._vimar_retry_after: datetime | None = None
         self.last_status: dict = (
             self._status_from_measurement(latest_measurement[0])
             if latest_measurement
@@ -455,6 +457,46 @@ class WebRuntime:
     def _tesla_power_w(car) -> float:
         return car.charging_power_w
 
+    def _read_appliances(self) -> list[dict]:
+        now = datetime.now(timezone.utc).astimezone()
+        if self._vimar_retry_after is not None and now < self._vimar_retry_after:
+            return [dict(item) for item in self._last_appliances]
+        try:
+            appliances = [
+                {"name": _safe_name(point.name or str(point.idsf)), "power_w": point.power_w}
+                for point in _read_energy_points_from_settings(self.hard)
+                if point.power_w is not None
+            ]
+        except Exception as exc:
+            LOG.warning("lettura Vimar non disponibile, uso ultima cache: %s", exc)
+            self._vimar_retry_after = now + timedelta(minutes=2)
+            self._threshold_event(
+                "vimar_unreachable",
+                True,
+                "Vimar non raggiungibile",
+                "warning",
+                {
+                    "component": "vimar",
+                    "exception_type": exc.__class__.__name__,
+                    "message": str(exc),
+                    "retry_after": self._vimar_retry_after.isoformat(),
+                    "cached_appliances": len(self._last_appliances),
+                },
+                mail_enabled=False,
+            )
+            return [dict(item) for item in self._last_appliances]
+        self._vimar_retry_after = None
+        self._last_appliances = appliances
+        self._threshold_event(
+            "vimar_unreachable",
+            False,
+            "Vimar non raggiungibile",
+            "info",
+            {"component": "vimar"},
+            mail_enabled=False,
+        )
+        return [dict(item) for item in appliances]
+
     def _control_measurement(
         self,
         measurement,
@@ -596,11 +638,7 @@ class WebRuntime:
     def _read_snapshot(self, stamp: str, *, wants_ble_control: bool = True) -> tuple:
         # FV/casa/rete non dipendono dall'auto: leggiamoli sempre, per primi.
         measurement = self.controller.grid.read()
-        appliances = [
-            {"name": _safe_name(point.name or str(point.idsf)), "power_w": point.power_w}
-            for point in _read_energy_points_from_settings(self.hard)
-            if point.power_w is not None
-        ]
+        appliances = self._read_appliances()
         vimar_power_w = sum(max(float(item["power_w"] or 0), 0.0) for item in appliances)
         car = None
         wall_vitals = None

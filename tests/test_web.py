@@ -1602,6 +1602,35 @@ def test_scheduler_error_exposes_debug_without_mail(monkeypatch, tmp_path):
     assert status["email_report"].startswith("config WordPress mail incompleta")
 
 
+def test_vimar_timeout_keeps_energy_monitoring_without_error_mail(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+    )
+    runtime.store.save(runtime.current)
+
+    def fail(_settings):
+        raise TimeoutError("Connection timed out")
+
+    reports = []
+    monkeypatch.setattr("tesla_energy_controller.web.read_energy_points_from_settings", fail)
+    runtime.reporter.notify = lambda *args, **kwargs: reports.append(
+        (args, kwargs)
+    ) or EmailReportResult(True, True, "report mail inviato")
+
+    status = runtime.run_cycle(datetime(2026, 7, 2, 0, 5, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] != "error"
+    assert reports == []
+    events = runtime.db.latest_events()
+    assert any(event["kind"] == "vimar_unreachable" for event in events)
+    assert not any(event["kind"] == "error_application" for event in events)
+
+
 def test_solaredge_modbus_connect_error_is_debounced(monkeypatch, tmp_path):
     monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
     app, _settings = application(monkeypatch, tmp_path)
