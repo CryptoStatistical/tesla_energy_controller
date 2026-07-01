@@ -16,6 +16,7 @@ from typing import Any, Callable
 from .config import ConfigurationError, Settings
 from .controller import EnergyController
 from .energy import reconcile_energy_flows
+from .live_status import read_status_cache
 from .storage import EnergyDatabase
 
 LOG = logging.getLogger("tesla_energy_controller.tuya")
@@ -352,6 +353,11 @@ class TuyaEnergyMeterBridge:
         self._samples: deque[dict[str, Any]] = deque(maxlen=max(1, int(sample_count)))
 
     def properties(self) -> dict[str, Any]:
+        status_properties = self._read_status_properties()
+        if status_properties is not None:
+            self._samples.clear()
+            return status_properties
+
         database_properties = self._read_database_properties()
         if database_properties is not None:
             self._samples.clear()
@@ -360,6 +366,35 @@ class TuyaEnergyMeterBridge:
         latest = self._read_properties()
         self._samples.append(latest)
         return self._average_properties(latest)
+
+    def _read_status_properties(self) -> dict[str, Any] | None:
+        if self.settings is None:
+            return None
+        max_age = max(90, int(getattr(self.settings, "tuya_report_interval_seconds", 30)) * 3)
+        status = read_status_cache(self.settings, max_age_seconds=max_age)
+        if status is None:
+            return None
+
+        solar_power_w = max(self._number(status.get("solar_power_w")) or 0.0, 0.0)
+        tesla_power_w = max(self._number(status.get("tesla_power_w")) or 0.0, 0.0)
+        total_consumption_w = max(
+            self._number(status.get("total_consumption_w")) or 0.0,
+            0.0,
+        )
+        house_power_w = self._number(status.get("house_power_w"))
+        if house_power_w is None:
+            house_power_w = max(total_consumption_w - tesla_power_w, 0.0)
+        tesla_state = self._tuya_cached_tesla_state(status, tesla_power_w)
+
+        return {
+            "meter_switch": self.meter_enabled,
+            "solar_power_w": round(solar_power_w),
+            "house_consumption_w": round(max(house_power_w, 0.0)),
+            "tesla_power_w": round(tesla_power_w),
+            "total_consumption_w": round(total_consumption_w),
+            "tesla_state": tesla_state,
+            "meter_fault": 0,
+        }
 
     def _read_database_properties(self) -> dict[str, Any] | None:
         if self.database is None:
@@ -379,7 +414,7 @@ class TuyaEnergyMeterBridge:
             float(latest.get("total_consumption_w") or 0.0) - tesla_power_w,
             0.0,
         )
-        tesla_state = self._tuya_database_tesla_state(latest, tesla_power_w)
+        tesla_state = self._tuya_cached_tesla_state(latest, tesla_power_w)
 
         return {
             "meter_switch": self.meter_enabled,
@@ -520,18 +555,25 @@ class TuyaEnergyMeterBridge:
             self.handle_property_get(client, message)
 
     @staticmethod
-    def _tuya_database_tesla_state(row: dict[str, Any], tesla_power_w: float) -> str:
-        def number(value: Any) -> float | None:
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return None
+    def _number(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
-        current_a = number(row.get("tesla_current_a"))
+    @classmethod
+    def _tuya_cached_tesla_state(cls, row: dict[str, Any], tesla_power_w: float) -> str:
+        current_a = cls._number(row.get("tesla_current_a"))
+        if current_a is None:
+            current_a = cls._number(row.get("current_a"))
         if current_a is not None:
             if current_a >= 1.0:
                 return "charging"
             return "idle" if tesla_power_w > 0 else "disconnected"
+        if row.get("tesla_connected") is True and tesla_power_w == 0:
+            return "idle"
+        if row.get("wall_connector_vehicle_connected") is False:
+            return "disconnected"
         if tesla_power_w >= 500:
             return "charging"
         if tesla_power_w > 0:

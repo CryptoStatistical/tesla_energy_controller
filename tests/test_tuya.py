@@ -3,6 +3,7 @@ import hmac
 import json
 from types import SimpleNamespace
 
+from tesla_energy_controller.live_status import write_status_cache
 from tesla_energy_controller.models import ChargeState, GridMeasurement
 from tesla_energy_controller.storage import EnergyDatabase
 from tesla_energy_controller.tuya import (
@@ -278,6 +279,64 @@ def test_tuya_uses_latest_sqlite_measurement_without_live_polling(tmp_path):
     assert properties["total_consumption_w"] == 5200
     assert properties["tesla_state"] == "charging"
     assert properties["meter_fault"] == 0
+
+
+def test_tuya_prefers_fresh_dashboard_status_cache(tmp_path):
+    class Grid:
+        def read(self):
+            raise AssertionError("Tuya deve usare la cache dashboard quando e' fresca")
+
+    class Vehicle:
+        def get_charge_state(self):
+            raise AssertionError("Tuya non deve leggere Tesla per dati gia' in cache")
+
+    database_file = tmp_path / "energy.sqlite3"
+    database = EnergyDatabase(str(database_file))
+    database.add_measurement(
+        {
+            "observed_at": "2026-07-01T22:12:11+02:00",
+            "solar_power_w": 0,
+            "vimar_power_w": 700,
+            "tesla_power_w": 100,
+            "total_consumption_w": 1000,
+            "import_power_w": 1000,
+            "export_power_w": 0,
+            "tesla_current_a": 0.4,
+            "controller_enabled": True,
+        },
+        [],
+    )
+    settings = SimpleNamespace(
+        energy_source="mock",
+        energy_database_file=str(database_file),
+        tuya_average_samples=1,
+        tuya_report_interval_seconds=30,
+        tuya_report_tesla=False,
+    )
+    write_status_cache(
+        settings,
+        {
+            "updated_at": "2026-07-01T22:18:11+02:00",
+            "solar_power_w": 0,
+            "house_power_w": 865,
+            "tesla_power_w": 91,
+            "total_consumption_w": 956,
+            "tesla_current_a": 0.4,
+            "tesla_connected": True,
+        },
+    )
+
+    bridge = TuyaEnergyMeterBridge(
+        settings=settings,
+        controller=SimpleNamespace(grid=Grid(), vehicle=Vehicle()),
+    )
+
+    properties = bridge.properties()
+
+    assert properties["house_consumption_w"] == 865
+    assert properties["tesla_power_w"] == 91
+    assert properties["total_consumption_w"] == 956
+    assert properties["tesla_state"] == "idle"
 
 
 def test_tuya_sqlite_wall_connector_standby_is_idle(tmp_path):

@@ -120,7 +120,7 @@
       <article class="metric panel" id="flowMetric"><span>Import (Export)</span><strong class="flow-value">{% set imp = (status.get('import_power_w') or 0)|round|int %}{% set exp = (status.get('export_power_w') or 0)|round|int %}{% if exp > 0 %}(<span class="flow-export">{{ exp }} W</span>){% else %}<span class="flow-import">{{ imp }} W</span>{% endif %}</strong></article>
       <article class="metric panel" data-metric="solar_power_w" data-unit=" W"><span>Solare</span><strong class="m-solar">{{ metric(status.get('solar_power_w'), ' W') }}</strong></article>
       {% if alfa_mode %}
-        <article class="metric panel" data-metric="appliances_power_w" data-unit=" W"><span>Elettrodomestici</span><strong>{{ metric(status.get('appliances_power_w'), ' W') }}</strong></article>
+        <article class="metric panel" data-metric="house_power_w" data-unit=" W"><span>Casa</span><strong class="m-casa">{{ metric(status.get('house_power_w'), ' W') }}</strong></article>
       {% else %}
         <article class="metric panel" data-metric="vimar_power_w" data-unit=" W"><span>Casa</span><strong class="m-casa">{{ metric(status.get('vimar_power_w'), ' W') }}</strong></article>
       {% endif %}

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from tesla_energy_controller.config import Settings
 from tesla_energy_controller.main import build_controller
 from tesla_energy_controller.diagnostics import EmailReportResult
+from tesla_energy_controller.live_status import read_status_cache
 from tesla_energy_controller.models import ChargeState, GridMeasurement
 from tesla_energy_controller.runtime import RuntimeSettingsStore
 from tesla_energy_controller.solar import SolarEdgeAccessError
@@ -2129,6 +2130,10 @@ def test_run_cycle_saves_rolling_ewma_sample(monkeypatch, tmp_path):
     assert status["control_sample_count"] == 2
     assert 3000 < status["import_power_w"] < 5000
     assert latest["import_power_w"] == status["import_power_w"]
+    cached = read_status_cache(_settings, max_age_seconds=3600)
+    assert cached is not None
+    assert cached["total_consumption_w"] == status["total_consumption_w"]
+    assert cached["house_power_w"] == status["house_power_w"]
 
 
 def test_alfa_disabled_restores_estimated_balance(monkeypatch, tmp_path):
@@ -2185,7 +2190,8 @@ def test_dashboard_switches_between_main_and_alfa_interface(monkeypatch, tmp_pat
         assert "Obiettivo quota potenza" in alfa
         assert "Extra rete" in alfa
         assert "Picco 15 min" not in alfa
-        assert 'data-metric="appliances_power_w"' in alfa
+        assert 'data-metric="house_power_w"' in alfa
+        assert '<span>Casa</span>' in alfa
         assert 'data-metric="device_power_w"' not in alfa
         assert 'data-metric="vimar_power_w"' not in alfa
         alfa_series = client.get("/api/device-series").get_json()

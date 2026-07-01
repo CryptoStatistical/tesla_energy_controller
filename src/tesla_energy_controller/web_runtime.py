@@ -17,6 +17,7 @@ from .demand import calculate_power_demand
 from .diagnostics import ErrorReporter, EventReporter, diagnostic_payload, render_event_report
 from .energy import reconcile_energy_flows
 from .factories import build_grid_source
+from .live_status import write_status_cache
 from .runtime import (
     RuntimeSettings,
     RuntimeSettingsError,
@@ -379,6 +380,12 @@ class WebRuntime:
             self.current = disk_settings
             self._apply_runtime_settings(self.current)
 
+    def _publish_status_cache(self) -> None:
+        try:
+            write_status_cache(self.hard, self.last_status)
+        except Exception:
+            LOG.exception("scrittura cache stato dashboard fallita")
+
     def _defer_solaredge_modbus_connect_error(
         self,
         exc: Exception,
@@ -423,6 +430,7 @@ class WebRuntime:
             }
         )
         self.last_status = cached
+        self._publish_status_cache()
         return True
 
     def _recover_solaredge_modbus_connect(self) -> None:
@@ -878,6 +886,7 @@ class WebRuntime:
                     context={"component": "web-window"},
                     email_report="non tentata",
                 )
+                self._publish_status_cache()
                 return dict(self.last_status)
 
             window_data = {
@@ -913,6 +922,7 @@ class WebRuntime:
                     },
                     email_report=mail_result.message,
                 )
+                self._publish_status_cache()
                 return dict(self.last_status)
             self._recover_solaredge_modbus_connect()
             if force_measurement and not measurement.fresh:
@@ -1089,6 +1099,7 @@ class WebRuntime:
                 self._store_measurement(self.last_status, appliances)
                 self._check_events(self.last_status, car)
                 self._check_anomaly_events(self.last_status["updated_at"], appliances)
+            self._publish_status_cache()
             return dict(self.last_status)
 
     def request_run_now(self, *, force_measurement: bool = False) -> str:
