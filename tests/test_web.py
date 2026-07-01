@@ -1627,7 +1627,11 @@ def test_vimar_timeout_keeps_energy_monitoring_without_error_mail(monkeypatch, t
     assert status["state"] != "error"
     assert reports == []
     events = runtime.db.latest_events()
-    assert any(event["kind"] == "vimar_unreachable" for event in events)
+    vimar_event = next(event for event in events if event["kind"] == "vimar_unreachable")
+    details = json.loads(vimar_event["details_json"])
+    assert details["component"] == "vimar"
+    assert details["source"] == "vimar"
+    assert "solar_source" not in details
     assert not any(event["kind"] == "error_application" for event in events)
 
 

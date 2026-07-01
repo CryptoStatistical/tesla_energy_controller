@@ -477,6 +477,7 @@ class WebRuntime:
                 "warning",
                 {
                     "component": "vimar",
+                    "source": "vimar",
                     "exception_type": exc.__class__.__name__,
                     "message": str(exc),
                     "retry_after": self._vimar_retry_after.isoformat(),
@@ -946,7 +947,7 @@ class WebRuntime:
                     exc,
                     context={
                         "component": "web-monitor",
-                        "energy_source": self.current.solar_source,
+                        "solar_source": self.current.solar_source,
                         "control_mode": self.hard.control_mode,
                     },
                 )
@@ -955,7 +956,7 @@ class WebRuntime:
                     exc,
                     context={
                         "component": "web-monitor",
-                        "energy_source": self.current.solar_source,
+                        "solar_source": self.current.solar_source,
                         "control_mode": self.hard.control_mode,
                     },
                     email_report=mail_result.message,
@@ -1119,7 +1120,7 @@ class WebRuntime:
                     exc,
                     context={
                         "component": "web-controller",
-                        "energy_source": self.current.solar_source,
+                        "solar_source": self.current.solar_source,
                         "control_mode": self.hard.control_mode,
                     },
                 )
@@ -1128,7 +1129,7 @@ class WebRuntime:
                     exc,
                     context={
                         "component": "web-controller",
-                        "energy_source": self.current.solar_source,
+                        "solar_source": self.current.solar_source,
                         "control_mode": self.hard.control_mode,
                     },
                     email_report=mail_result.message,
