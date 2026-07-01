@@ -24,7 +24,7 @@ from .runtime import (
     parse_anomaly_device_groups,
 )
 from .schedule import OperatingWindow, anomaly_window, operating_window
-from .solar import AlfaModbusSource
+from .solar import AlfaModbusSource, SolarEdgeAccessError
 from .storage import EnergyDatabase
 from .tesla import TeslaBLEError, WallConnectorClient
 from .vimar import read_energy_points_from_settings as _default_read_energy_points_from_settings
@@ -32,6 +32,8 @@ from .vimar import read_energy_points_from_settings as _default_read_energy_poin
 LOG = logging.getLogger("tesla_energy_controller.web")
 SERIES_BUCKET_SECONDS = 300
 SERIES_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 3
+SOLAREDGE_MODBUS_CONNECT_GRACE = timedelta(minutes=5)
+SOLAREDGE_MODBUS_CONNECT_EVENT = "solaredge_modbus_connect_degraded"
 
 
 def _read_energy_points_from_settings(settings: Settings):
@@ -271,6 +273,7 @@ class WebRuntime:
         self.active_events: set[str] = set()
         self._monthly_peak_cache: tuple[str, float] | None = None
         self._rolling_samples: list[tuple[datetime, dict, list[dict]]] = []
+        self._solaredge_modbus_down_since: datetime | None = None
         self.last_status: dict = (
             self._status_from_measurement(latest_measurement[0])
             if latest_measurement
@@ -365,6 +368,70 @@ class WebRuntime:
         if disk_settings != self.current:
             self.current = disk_settings
             self._apply_runtime_settings(self.current)
+
+    def _defer_solaredge_modbus_connect_error(
+        self,
+        exc: Exception,
+        cycle_time: datetime,
+        window_data: dict,
+    ) -> bool:
+        if not (
+            isinstance(exc, SolarEdgeAccessError)
+            and exc.phase == "modbus-connect"
+            and self.current.solar_source == "solaredge-modbus"
+        ):
+            return False
+        now = cycle_time.astimezone()
+        if self._solaredge_modbus_down_since is None:
+            self._solaredge_modbus_down_since = now
+        elapsed = now - self._solaredge_modbus_down_since
+        if elapsed >= SOLAREDGE_MODBUS_CONNECT_GRACE:
+            return False
+
+        payload = diagnostic_payload(exc)
+        self._threshold_event(
+            SOLAREDGE_MODBUS_CONNECT_EVENT,
+            True,
+            "SolarEdge Modbus temporaneamente non disponibile",
+            "warning",
+            {
+                "diagnostic": payload,
+                "elapsed_seconds": round(elapsed.total_seconds()),
+                "grace_seconds": round(SOLAREDGE_MODBUS_CONNECT_GRACE.total_seconds()),
+            },
+            mail_enabled=False,
+        )
+        cached = dict(self.last_status or {})
+        cached.update(window_data)
+        cached.update(
+            {
+                "state": "degraded" if cached.get("updated_at") else "waiting",
+                "message": "SolarEdge Modbus temporaneamente non disponibile; uso ultimo campione",
+                "debug": payload,
+                "email_report": "mail non inviata: debounce Modbus SolarEdge",
+                "solar_source": self.current.solar_source,
+            }
+        )
+        self.last_status = cached
+        return True
+
+    def _recover_solaredge_modbus_connect(self) -> None:
+        if self._solaredge_modbus_down_since is None:
+            return
+        started_at = self._solaredge_modbus_down_since
+        self._solaredge_modbus_down_since = None
+        self._threshold_event(
+            SOLAREDGE_MODBUS_CONNECT_EVENT,
+            False,
+            "SolarEdge Modbus temporaneamente non disponibile",
+            "info",
+            {
+                "duration_seconds": round(
+                    (datetime.now(timezone.utc).astimezone() - started_at).total_seconds()
+                )
+            },
+            mail_enabled=False,
+        )
 
     @staticmethod
     def _tesla_power_w(car) -> float:
@@ -813,6 +880,8 @@ class WebRuntime:
                     stamp, wants_ble_control=self.current.enabled and window.active
                 )
             except Exception as exc:
+                if self._defer_solaredge_modbus_connect_error(exc, cycle_time, window_data):
+                    return dict(self.last_status)
                 LOG.exception("monitoraggio energia fallito")
                 self.last_status = {**self._error(exc), **window_data}
                 self.refresh_mail_recipients()
@@ -835,6 +904,7 @@ class WebRuntime:
                     email_report=mail_result.message,
                 )
                 return dict(self.last_status)
+            self._recover_solaredge_modbus_connect()
             if force_measurement and not measurement.fresh:
                 measurement = replace(measurement, fresh=True)
 

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from tesla_energy_controller.config import Settings
 from tesla_energy_controller.main import build_controller
+from tesla_energy_controller.diagnostics import EmailReportResult
 from tesla_energy_controller.models import ChargeState, GridMeasurement
 from tesla_energy_controller.runtime import RuntimeSettingsStore
 from tesla_energy_controller.solar import SolarEdgeAccessError
@@ -1598,6 +1599,60 @@ def test_scheduler_error_exposes_debug_without_mail(monkeypatch, tmp_path):
     assert status["debug"]["phase"] == "authorization-code"
     assert status["debug"]["endpoint"] == "https://login.solaredge.com/login"
     assert status["email_report"].startswith("config WordPress mail incompleta")
+
+
+def test_solaredge_modbus_connect_error_is_debounced(monkeypatch, tmp_path):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        solar_source="solaredge-modbus",
+    )
+    runtime.store.save(runtime.current)
+    runtime.last_status.update(
+        {
+            "state": "cached",
+            "message": "Ultima misura salvata",
+            "updated_at": "2026-07-01T12:00:00+02:00",
+            "solar_power_w": 4500,
+        }
+    )
+
+    def fail():
+        raise SolarEdgeAccessError(
+            "Connessione Modbus SolarEdge non riuscita",
+            phase="modbus-connect",
+            endpoint="tcp://192.168.2.126:1502",
+        )
+
+    reports = []
+    runtime.controller.grid.read = fail
+    runtime.reporter.notify = lambda *args, **kwargs: reports.append(
+        (args, kwargs)
+    ) or EmailReportResult(True, True, "report mail inviato")
+    now = datetime(2026, 7, 1, 12, tzinfo=ZoneInfo("Europe/Rome"))
+
+    status = runtime.run_cycle(now)
+    assert status["state"] == "degraded"
+    assert status["solar_power_w"] == 4500
+    assert status["email_report"] == "mail non inviata: debounce Modbus SolarEdge"
+    assert reports == []
+    events = runtime.db.latest_events()
+    assert any(event["kind"] == "solaredge_modbus_connect_degraded" for event in events)
+    assert not any(event["kind"] == "error_solaredge" for event in events)
+
+    status = runtime.run_cycle(now.replace(minute=4, second=59))
+    assert status["state"] == "degraded"
+    assert reports == []
+
+    status = runtime.run_cycle(now.replace(minute=5))
+    assert status["state"] == "error"
+    assert reports
+    assert any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
 
 
 def test_solaredge_web_grid_only_payload_reconstructs_solar(monkeypatch, tmp_path):
