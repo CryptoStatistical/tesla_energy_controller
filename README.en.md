@@ -7,6 +7,12 @@ real Italian residential energy setup. In particular, the ALFA by Sinapsi integr
 designed for the Italian Enel meter context and should not be treated as a generic international
 smart-meter driver.
 
+## Presentation Materials
+
+- [Technical presentation PDF](docs/presentation/tesla-energy-controller-presentation.pdf)
+- [Technical presentation HTML](docs/presentation/tesla-energy-controller-presentation.html)
+- [Rendered HTML preview](https://htmlpreview.github.io/?https://github.com/CryptoStatistical/tesla_energy_controller/blob/main/docs/presentation/tesla-energy-controller-presentation.html)
+
 ## What It Does
 
 Tesla Energy Controller is a Python service that reads:

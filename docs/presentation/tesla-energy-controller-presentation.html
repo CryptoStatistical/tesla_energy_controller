@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Tesla Energy Controller — Presentazione tecnica</title>
+<style>
+  :root{
+    --navy:#0A1F3C;
+    --navy2:#0E2A4E;
+    --blue:#2D7DD2;
+    --blue-d:#1E5FA8;
+    --amber:#F6A609;
+    --amber-l:#FFC233;
+    --green:#16A34A;
+    --green-l:#22C55E;
+    --tesla:#E31937;
+    --vimar:#0EA5A4;
+    --rasp:#C51A4A;
+    --grid:#64748B;
+    --ink:#0F2238;
+    --muted:#5A6B80;
+    --line:#D8E1EC;
+    --bg:#F4F7FB;
+    --card:#FFFFFF;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{
+    font-family:"Inter","SF Pro Display",-apple-system,"Helvetica Neue",Arial,sans-serif;
+    color:var(--ink);
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  @page{ size:1280px 720px; margin:0; }
+  .slide{
+    position:relative;
+    width:1280px;
+    height:720px;
+    overflow:hidden;
+    background:var(--bg);
+    page-break-after:always;
+    display:flex;
+    flex-direction:column;
+  }
+  .slide:last-child{ page-break-after:auto; }
+
+  /* ---------- Generic content slide chrome ---------- */
+  .topbar{
+    height:84px;
+    padding:0 56px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:linear-gradient(90deg,var(--navy) 0%,var(--navy2) 60%,#13355f 100%);
+    color:#fff;
+    flex:0 0 auto;
+  }
+  .topbar .kicker{
+    font-size:14px;letter-spacing:.22em;text-transform:uppercase;
+    color:#9FC2E8;font-weight:600;
+  }
+  .topbar h2{ font-size:30px;font-weight:800;letter-spacing:-.01em;margin-top:2px;}
+  .topbar .pill{
+    font-size:13px;font-weight:700;color:#0A1F3C;background:var(--amber-l);
+    padding:7px 16px;border-radius:999px;letter-spacing:.02em;white-space:nowrap;
+  }
+  .accent{ height:6px;flex:0 0 auto;
+    background:linear-gradient(90deg,var(--amber) 0%,var(--green) 33%,var(--vimar) 66%,var(--tesla) 100%);}
+  .body{ flex:1 1 auto;padding:34px 56px 0 56px;position:relative;}
+  .footer{
+    height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+    padding:0 56px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);
+    background:#fff;
+  }
+  .footer b{color:var(--ink);}
+  .pageno{font-variant-numeric:tabular-nums;font-weight:700;color:var(--blue-d);}
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 8px 24px rgba(13,40,80,.06);
+  }
+  .lead{font-size:19px;line-height:1.5;color:var(--ink);}
+  .lead .hl{color:var(--blue-d);font-weight:700;}
+  ul.clean{list-style:none;}
+  ul.clean li{position:relative;padding-left:30px;margin-bottom:14px;font-size:16.5px;line-height:1.45;color:#24364C;}
+  ul.clean li::before{
+    content:"";position:absolute;left:4px;top:7px;width:11px;height:11px;border-radius:3px;
+    background:var(--blue);
+  }
+  ul.clean li b{color:var(--ink);}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:4px 11px;border-radius:8px;
+    letter-spacing:.03em;text-transform:uppercase;}
+
+  /* ---------- Metric strip ---------- */
+  .metrics{display:flex;gap:18px;}
+  .metric{flex:1;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+    box-shadow:0 6px 16px rgba(13,40,80,.05);}
+  .metric .v{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1;}
+  .metric .l{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.3;}
+  .metric .u{font-size:18px;font-weight:700;color:var(--muted);}
+
+  code,.mono{font-family:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;}
+  .chip{display:inline-block;background:#EAF2FB;color:#1E5FA8;border:1px solid #CFE0F4;
+    border-radius:7px;padding:3px 9px;font-size:13px;font-weight:600;}
+
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:26px;}
+  .threecol{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;}
+
+  .secnum{font-size:13px;font-weight:800;color:var(--amber);letter-spacing:.2em;}
+  h3.blk{font-size:20px;font-weight:800;margin-bottom:6px;color:var(--ink);}
+  p.note{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.4;}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13.5px;color:#33455c;}
+  .legend span{display:flex;align-items:center;gap:7px;}
+  .dot{width:13px;height:13px;border-radius:4px;display:inline-block;}
+
+  /* ====================== COVER ====================== */
+  .cover{background:radial-gradient(1200px 700px at 78% -10%,#143a66 0%,#0A1F3C 55%);color:#fff;justify-content:flex-start;}
+  .cover .grid-bg{position:absolute;inset:0;opacity:.10;
+    background-image:linear-gradient(#9FC2E8 1px,transparent 1px),linear-gradient(90deg,#9FC2E8 1px,transparent 1px);
+    background-size:46px 46px;}
+  .cover .glowsun{position:absolute;right:-120px;top:-120px;width:520px;height:520px;border-radius:50%;
+    background:radial-gradient(circle,rgba(246,166,9,.55) 0%,rgba(246,166,9,0) 70%);}
+  .cover-inner{position:relative;padding:74px 70px 0 70px;z-index:2;}
+  .brandrow{display:flex;align-items:center;gap:14px;margin-bottom:40px;}
+  .brandmark{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--amber),var(--tesla));
+    display:flex;align-items:center;justify-content:center;font-size:24px;}
+  .brandrow .bt{font-size:15px;letter-spacing:.28em;text-transform:uppercase;color:#9FC2E8;font-weight:700;}
+  .cover h1{font-size:68px;line-height:1.02;font-weight:850;letter-spacing:-.025em;}
+  .cover h1 .accentword{
+    background:linear-gradient(90deg,var(--amber-l),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .cover .sub{font-size:23px;color:#CFE0F4;margin-top:22px;max-width:760px;line-height:1.45;font-weight:500;}
+  .cover .meta{position:absolute;left:70px;bottom:54px;z-index:2;display:flex;gap:46px;color:#A9C4E4;font-size:15px;}
+  .cover .meta b{color:#fff;font-weight:700;display:block;font-size:16px;margin-bottom:3px;}
+  .cover .meta .lbl{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#6f93bd;}
+
+  /* chain on cover */
+  .chain{position:absolute;right:64px;bottom:60px;z-index:2;}
+</style>
+</head>
+<body>
+
+<!-- ============================ SLIDE 1 — COVER ============================ -->
+<section class="slide cover">
+  <div class="grid-bg"></div>
+  <div class="glowsun"></div>
+  <div class="cover-inner">
+    <div class="brandrow">
+      <div class="brandmark">⚡</div>
+      <div class="bt">Energy &nbsp;·&nbsp; Solare &nbsp;·&nbsp; Mobilità elettrica</div>
+    </div>
+    <h1>Tesla&nbsp;Energy&nbsp;<span class="accentword">Controller</span></h1>
+    <div class="sub">Ricarica intelligente dell'auto elettrica con l'energia
+    fotovoltaica in eccesso, governata da una Raspberry&nbsp;Pi che integra
+    l'impianto <b style="color:#fff">SolarEdge</b>, il sistema domotico
+    <b style="color:#fff">VIMAR</b> e la <b style="color:#fff">Tesla</b>.</div>
+  </div>
+
+  <!-- flow chain SVG -->
+  <svg class="chain" width="560" height="150" viewBox="0 0 560 150" fill="none">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="#9FC2E8"/>
+      </marker>
+    </defs>
+    <line x1="98" y1="55" x2="146" y2="55" stroke="#9FC2E8" stroke-width="2.5" marker-end="url(#arr)"/>
+    <line x1="250" y1="55" x2="298" y2="55" stroke="#9FC2E8" stroke-width="2.5" marker-end="url(#arr)"/>
+    <line x1="402" y1="55" x2="450" y2="55" stroke="#9FC2E8" stroke-width="2.5" marker-end="url(#arr)"/>
+    <!-- node circles -->
+    <g text-anchor="middle" font-family="Inter,Arial" font-weight="700" font-size="13" fill="#fff">
+      <circle cx="58" cy="55" r="34" fill="rgba(246,166,9,.18)" stroke="#F6A609" stroke-width="2"/>
+      <text x="58" y="50" font-size="22">☀️</text><text x="58" y="118" fill="#CFE0F4">SolarEdge</text>
+      <circle cx="210" cy="55" r="34" fill="rgba(14,165,164,.18)" stroke="#0EA5A4" stroke-width="2"/>
+      <text x="210" y="50" font-size="22">🏠</text><text x="210" y="118" fill="#CFE0F4">VIMAR</text>
+      <circle cx="362" cy="55" r="34" fill="rgba(197,26,74,.20)" stroke="#C51A4A" stroke-width="2"/>
+      <text x="362" y="50" font-size="22">🍓</text><text x="362" y="118" fill="#CFE0F4">Raspberry</text>
+      <circle cx="510" cy="55" r="34" fill="rgba(227,25,55,.18)" stroke="#E31937" stroke-width="2"/>
+      <text x="510" y="50" font-size="22">🚗</text><text x="510" y="118" fill="#CFE0F4">Tesla</text>
+    </g>
+  </svg>
+
+  <div class="meta">
+    <div><span class="lbl">Ambito</span><b>Autoconsumo solare</b>Ricarica EV controllata</div>
+    <div><span class="lbl">Piattaforma</span><b>Raspberry&nbsp;Pi · edge</b>Python · tutto in locale</div>
+    <div><span class="lbl">Documento</span><b>Presentazione tecnica</b>Architettura e funzionamento</div>
+  </div>
+</section>
+
+<!-- ============================ SLIDE 2 — SINTESI ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">In sintesi</div><h2>Che cos'è e a cosa serve</h2></div>
+    <div class="pill">Sintesi esecutiva</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body">
+    <div class="twocol" style="align-items:start;">
+      <div>
+        <p class="lead">Un servizio software che <span class="hl">campiona di continuo</span> quanta energia
+        produce il fotovoltaico, quanta ne consuma la casa e lo stato dell'auto in una finestra in RAM;
+        <span class="hl">ogni 5 minuti</span> ne calcola la media (EWMA) e adatta
+        <span class="hl">la corrente di ricarica</span> per assorbire il
+        più possibile dal sole, riducendo i prelievi dalla rete.</p>
+        <ul class="clean" style="margin-top:24px;">
+          <li><b>Obiettivo:</b> massimizzare l'autoconsumo dell'energia solare caricando l'auto con i kW che altrimenti finirebbero in rete.</li>
+          <li><b>Non invasivo:</b> di norma regola solo l'amperaggio di una ricarica <i>già avviata</i>; solo la logica <b>Quota Potenza</b> può sospendere/riprendere per rispettare il limite quartorario.</li>
+          <li><b>Sicuro per default:</b> parte in modalità <span class="chip">dry-run</span> — calcola la decisione ma non invia comandi finché non è validato sul campo.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card" style="padding:20px 24px;">
+          <h3 class="blk">Le fonti di dato</h3>
+          <p class="note" style="margin-top:0;margin-bottom:14px;">Ogni ciclo combina letture indipendenti e locali:</p>
+          <div style="display:flex;flex-direction:column;gap:11px;">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:42px;height:42px;border-radius:11px;background:#FFF4DF;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">☀️</div>
+              <div><b>SolarEdge</b> — produzione FV istantanea<br><span class="note" style="margin:0;">Modbus TCP · API cloud · portale web</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:42px;height:42px;border-radius:11px;background:#F3E8FF;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">🔌</div>
+              <div><b>Contatore ALFA Sinapsi</b> — import/export di rete<br><span class="note" style="margin:0;">Modbus TCP · base della Quota Potenza</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:42px;height:42px;border-radius:11px;background:#DFF7F6;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">🏠</div>
+              <div><b>Gateway VIMAR By-me</b> — consumi della casa<br><span class="note" style="margin:0;">misura per singolo circuito, via rete locale</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:42px;height:42px;border-radius:11px;background:#FCE4E8;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">🚗</div>
+              <div><b>Tesla</b> — stato e potenza di ricarica<br><span class="note" style="margin:0;">Bluetooth LE ufficiale o Wall Connector</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="metrics" style="margin-top:16px;">
+          <div class="metric"><div class="v" style="color:var(--blue-d);">5<span class="u">min</span></div><div class="l">media EWMA e decisione</div></div>
+          <div class="metric"><div class="v" style="color:var(--green);">690<span class="u">W</span></div><div class="l">per ogni ampere (3×230&nbsp;V)</div></div>
+          <div class="metric"><div class="v" style="color:var(--rasp);">≈5<span class="u">W</span></div><div class="l">consumo della Raspberry</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">02 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 3 — PROBLEMA / OBIETTIVO ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Il contesto</div><h2>Il problema e l'obiettivo</h2></div>
+    <div class="pill">Perché serve</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body">
+    <div class="twocol">
+      <div class="card" style="padding:24px 26px;">
+        <span class="tag" style="background:#FDECEC;color:#B91C1C;">Il problema</span>
+        <h3 class="blk" style="margin-top:12px;">L'energia solare in eccesso viene "regalata" alla rete</h3>
+        <ul class="clean" style="margin-top:14px;">
+          <li>Nelle ore centrali il FV produce più di quanto la casa consuma: il surplus viene immesso in rete a un valore basso.</li>
+          <li>La Tesla è un grande accumulatore: caricarla con quel surplus vale molto più che venderlo.</li>
+          <li>Caricare a corrente fissa spreca sole quando c'è poco, o preleva dalla rete quando la casa accende i carichi pesanti (pompa di calore, clima, forno…).</li>
+          <li>Per dosare bene serve sapere <b>in tempo reale quanto consuma davvero la casa</b> — ed è qui che entra VIMAR.</li>
+        </ul>
+      </div>
+      <div class="card" style="padding:24px 26px;">
+        <span class="tag" style="background:#E7F6EE;color:#15803D;">L'obiettivo</span>
+        <h3 class="blk" style="margin-top:12px;">Inseguire il sole, rispettando la casa</h3>
+        <ul class="clean" style="margin-top:14px;">
+          <li><b>Autoconsumo prima di tutto:</b> assegnare alla Tesla la potenza fotovoltaica disponibile, al netto dei consumi domestici letti da VIMAR.</li>
+          <li><b>Quota potenza:</b> con il contatore ALFA, restare sotto la potenza media quartoraria contrattuale (limite hard); il solare più una quota extra di rete ammessa alza la corrente.</li>
+          <li><b>Stabilità:</b> variazioni morbide (max +2&nbsp;A per ciclo, isteresi) per non stressare auto e impianto.</li>
+          <li><b>Trasparenza:</b> ogni decisione registrata, visibile su una dashboard e sull'app Smart&nbsp;Life.</li>
+        </ul>
+        <div style="margin-top:18px;background:#0E2A4E;border-radius:12px;padding:16px 18px;color:#CFE0F4;font-size:15px;line-height:1.5;">
+          <b style="color:#FFC233;">La regola di base</b><br>
+          <span class="mono" style="color:#fff;font-size:15px;">ampere = ⌊ (FV − consumi casa + extra ammesso) / (tensione × fasi) ⌋</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">03 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 4 — ARCHITETTURA ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Visione d'insieme</div><h2>Architettura del sistema</h2></div>
+    <div class="pill">Come è fatto</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:18px;">
+    <svg width="1168" height="500" viewBox="0 0 1168 500" font-family="Inter,Arial">
+      <defs>
+        <marker id="a2" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#7C93AE"/>
+        </marker>
+        <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#0d2850" flood-opacity="0.12"/>
+        </filter>
+      </defs>
+
+      <!-- column labels -->
+      <text x="170" y="24" text-anchor="middle" font-size="13" font-weight="800" fill="#7C93AE" letter-spacing="2">SORGENTI DI DATO</text>
+      <text x="584" y="24" text-anchor="middle" font-size="13" font-weight="800" fill="#7C93AE" letter-spacing="2">ORCHESTRATORE</text>
+      <text x="1000" y="24" text-anchor="middle" font-size="13" font-weight="800" fill="#7C93AE" letter-spacing="2">USCITE / INTERFACCE</text>
+
+      <!-- connectors source -> Pi -->
+      <path d="M340 75 C 420 75, 430 200, 470 208" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
+      <path d="M340 181 C 420 181, 440 232, 470 236" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
+      <path d="M340 287 C 420 287, 440 274, 470 272" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
+      <path d="M340 393 C 420 393, 445 306, 470 300" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
+      <text x="352" y="66" font-size="12" font-weight="700" fill="#C99000">Modbus TCP</text>
+      <text x="352" y="172" font-size="12" font-weight="700" fill="#7C3AED">Modbus TCP</text>
+      <text x="352" y="278" font-size="12" font-weight="700" fill="#0EA5A4">wss + TLS</text>
+      <text x="352" y="384" font-size="12" font-weight="700" fill="#E31937">BLE / HTTP</text>
+
+      <!-- connectors Pi -> outputs -->
+      <path d="M700 215 C 780 200, 800 95, 838 95" stroke="#7C93AE" stroke-width="2.4" fill="none" marker-end="url(#a2)"/>
+      <path d="M700 235 C 790 235, 800 200, 838 200" stroke="#7C93AE" stroke-width="2.4" fill="none" marker-end="url(#a2)"/>
+      <path d="M700 250 C 790 250, 800 305, 838 305" stroke="#7C93AE" stroke-width="2.4" fill="none" marker-end="url(#a2)"/>
+      <path d="M700 265 C 780 280, 800 410, 838 410" stroke="#7C93AE" stroke-width="2.4" fill="none" marker-end="url(#a2)"/>
+
+      <!-- SOURCE nodes -->
+      <g filter="url(#sh)">
+        <rect x="40" y="44" width="300" height="62" rx="13" fill="#fff" stroke="#F6A609" stroke-width="2"/>
+        <rect x="40" y="150" width="300" height="62" rx="13" fill="#fff" stroke="#7C3AED" stroke-width="2"/>
+        <rect x="40" y="256" width="300" height="62" rx="13" fill="#fff" stroke="#0EA5A4" stroke-width="2"/>
+        <rect x="40" y="362" width="300" height="62" rx="13" fill="#fff" stroke="#E31937" stroke-width="2"/>
+      </g>
+      <text x="62" y="83" font-size="24">☀️</text>
+      <text x="100" y="71" font-size="17" font-weight="800" fill="#0F2238">Fotovoltaico</text>
+      <text x="100" y="91" font-size="12.5" fill="#5A6B80">SolarEdge · Modbus TCP · cloud</text>
+
+      <text x="62" y="189" font-size="24">🔌</text>
+      <text x="100" y="177" font-size="17" font-weight="800" fill="#0F2238">Contatore rete</text>
+      <text x="100" y="197" font-size="12.5" fill="#5A6B80">ALFA Sinapsi · import/export</text>
+
+      <text x="62" y="295" font-size="24">🏠</text>
+      <text x="100" y="283" font-size="17" font-weight="800" fill="#0F2238">Consumi casa</text>
+      <text x="100" y="303" font-size="12.5" fill="#5A6B80">VIMAR By-me · per circuito</text>
+
+      <text x="62" y="401" font-size="24">🚗</text>
+      <text x="100" y="389" font-size="17" font-weight="800" fill="#0F2238">Auto elettrica</text>
+      <text x="100" y="409" font-size="12.5" fill="#5A6B80">Tesla BLE / Wall Connector</text>
+
+      <!-- Raspberry CENTER -->
+      <g filter="url(#sh)">
+        <rect x="470" y="150" width="230" height="200" rx="18" fill="#0A1F3C"/>
+      </g>
+      <rect x="470" y="150" width="230" height="200" rx="18" fill="none" stroke="#C51A4A" stroke-width="2.5"/>
+      <text x="585" y="196" text-anchor="middle" font-size="34">🍓</text>
+      <text x="585" y="230" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">Raspberry Pi</text>
+      <text x="585" y="252" text-anchor="middle" font-size="13.5" fill="#9FC2E8">Zero 2 W · Linux · systemd</text>
+      <line x1="500" y1="268" x2="670" y2="268" stroke="#1f3c63" stroke-width="1.2"/>
+      <text x="585" y="290" text-anchor="middle" font-size="12.5" fill="#CFE0F4">campiona ~30&nbsp;s · EWMA e decide 5&nbsp;min</text>
+      <text x="585" y="310" text-anchor="middle" font-size="12.5" fill="#CFE0F4">logica di controllo · storage SQLite</text>
+      <text x="585" y="330" text-anchor="middle" font-size="12.5" fill="#CFE0F4">tutto in locale, in casa</text>
+
+      <!-- OUTPUT nodes -->
+      <g filter="url(#sh)">
+        <rect x="838" y="62" width="290" height="66" rx="13" fill="#fff" stroke="#2D7DD2" stroke-width="1.8"/>
+        <rect x="838" y="167" width="290" height="66" rx="13" fill="#fff" stroke="#16A34A" stroke-width="1.8"/>
+        <rect x="838" y="272" width="290" height="66" rx="13" fill="#fff" stroke="#F6A609" stroke-width="1.8"/>
+        <rect x="838" y="377" width="290" height="66" rx="13" fill="#fff" stroke="#64748B" stroke-width="1.8"/>
+      </g>
+      <text x="862" y="92" font-size="22">📊</text>
+      <text x="900" y="89" font-size="16.5" font-weight="800" fill="#0F2238">Dashboard web</text>
+      <text x="900" y="110" font-size="12.5" fill="#5A6B80">Flask · pannello admin/viewer</text>
+
+      <text x="862" y="197" font-size="22">📱</text>
+      <text x="900" y="194" font-size="16.5" font-weight="800" fill="#0F2238">App Smart Life / Tuya</text>
+      <text x="900" y="215" font-size="12.5" fill="#5A6B80">misure aggregate via MQTT</text>
+
+      <text x="862" y="302" font-size="22">✉️</text>
+      <text x="900" y="299" font-size="16.5" font-weight="800" fill="#0F2238">Notifiche e-mail</text>
+      <text x="900" y="320" font-size="12.5" fill="#5A6B80">avvisi su errori / eventi</text>
+
+      <text x="862" y="407" font-size="22">🗄️</text>
+      <text x="900" y="404" font-size="16.5" font-weight="800" fill="#0F2238">Storico SQLite</text>
+      <text x="900" y="425" font-size="12.5" fill="#5A6B80">misure ed eventi (90 giorni)</text>
+
+      <!-- legend bottom -->
+      <text x="40" y="478" font-size="13.5" fill="#5A6B80">Tutte le comunicazioni con auto e impianti sono <tspan font-weight="800" fill="#0F2238">locali e cifrate</tspan>; nessun dato sensibile lascia la rete di casa per funzionare.</text>
+    </svg>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">04 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 5 — RUOLO VIMAR ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Il cuore dell'integrazione</div><h2>Il ruolo del gateway VIMAR</h2></div>
+    <div class="pill">Focus VIMAR</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:24px;">
+    <div class="twocol" style="grid-template-columns:1.05fr .95fr;">
+      <div>
+        <p class="lead" style="font-size:17.5px;">Il sistema si collega al <span class="hl">gateway VIMAR By-me</span> come
+        applicazione di terze parti, sfruttando l'<b>API IP locale</b> documentata. Da lì ottiene la
+        misura energetica della casa, suddivisa <b>per singolo circuito</b>.</p>
+
+        <div class="card" style="padding:18px 22px;margin-top:18px;">
+          <h3 class="blk" style="font-size:17px;">Il dialogo con il gateway, passo per passo</h3>
+          <ol style="margin:10px 0 0 20px;font-size:14.5px;line-height:1.5;color:#28384f;">
+            <li style="margin-bottom:8px;"><b>Scoperta</b> del gateway in rete via mDNS&nbsp;<span class="mono chip">_vimar-devctrl._tcp</span> (IP, modello, versioni).</li>
+            <li style="margin-bottom:8px;"><b>Sessione</b> sicura WebSocket su TLS — <span class="mono chip">wss://&nbsp;porta&nbsp;20615</span>, protocollo&nbsp;2.7.</li>
+            <li style="margin-bottom:8px;"><b>Abbinamento</b> una tantum con <i>Third-Party&nbsp;Tag</i> e <i>Setup&nbsp;Code</i>; il gateway restituisce le credenziali permanenti.</li>
+            <li style="margin-bottom:8px;"><b>Autenticazione</b> a ogni accesso firmando la sfida con la <b>chiave privata RSA</b> (PKCS#1 v1.5).</li>
+            <li><b>Lettura</b> tramite <span class="mono chip">sfdiscovery</span> dei punti "Energy" con i relativi valori istantanei.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="padding:18px 22px;background:#0A1F3C;border:none;">
+          <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;">Grandezze lette dall'impianto</div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:9px;">
+            <div style="background:#10305a;border-radius:9px;padding:11px 14px;">
+              <span class="mono" style="color:#FFC233;font-size:13px;">SFE_State_GlobalActivePowerConsumption</span>
+              <div style="color:#CFE0F4;font-size:13px;margin-top:3px;">Potenza assorbita → <b style="color:#fff;">consumo casa</b></div>
+            </div>
+            <div style="background:#10305a;border-radius:9px;padding:11px 14px;">
+              <span class="mono" style="color:#7FE3E2;font-size:13px;">SFE_State_GlobalActivePowerProduct</span>
+              <div style="color:#CFE0F4;font-size:13px;margin-top:3px;">Potenza prodotta (se monitorata)</div>
+            </div>
+            <div style="background:#10305a;border-radius:9px;padding:11px 14px;">
+              <span class="mono" style="color:#9FE3B6;font-size:13px;">SFE_State_GlobalActivePowerExchange</span>
+              <div style="color:#CFE0F4;font-size:13px;margin-top:3px;">Scambio con la rete (import/export)</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:16px 20px;margin-top:16px;">
+          <div class="legend" style="gap:18px;">
+            <span><span class="dot" style="background:#0EA5A4;"></span><b>Impianto trifase</b>&nbsp;230&nbsp;V</span>
+            <span><span class="dot" style="background:#2D7DD2;"></span>misura per singolo circuito</span>
+          </div>
+          <p class="note" style="margin-top:12px;">La chiave privata e il certificato CA VIMAR restano <b>solo sulla Raspberry</b>,
+          con permessi di file ristretti. L'app legge soltanto le misure: non comanda i carichi domestici.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Integrazione API IP VIMAR By-me</span><span class="pageno">05 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 6 — DATI VIMAR (BAR CHART REALE) ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Contatore di scambio · ALFA Sinapsi</div><h2>Quota Potenza: la media quartoraria</h2></div>
+    <div class="pill">Focus ALFA</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:22px;">
+    <div class="twocol" style="grid-template-columns:1.3fr .7fr;align-items:start;">
+      <div class="card" style="padding:20px 26px;">
+        <h3 class="blk" style="font-size:16px;">Un quarto d'ora = tre slot da 5 minuti</h3>
+        <svg width="690" height="300" viewBox="0 0 690 300" font-family="Inter,Arial">
+          <!-- legend -->
+          <rect x="120" y="14" width="20" height="4" rx="2" fill="#E31937"/>
+          <text x="148" y="22" font-size="12.5" font-weight="700" fill="#E31937">Soglia quota · 6,9&nbsp;kW</text>
+          <rect x="368" y="14" width="20" height="4" rx="2" fill="#F6A609"/>
+          <text x="396" y="22" font-size="12.5" font-weight="700" fill="#C99000">Media proiettata · 7,4&nbsp;kW</text>
+          <!-- baseline -->
+          <line x1="120" y1="250" x2="620" y2="250" stroke="#C9D5E3" stroke-width="1.5"/>
+          <!-- bars measured -->
+          <rect x="155" y="95" width="90" height="155" rx="6" fill="#2D7DD2"/>
+          <text x="200" y="86" text-anchor="middle" font-size="13.5" font-weight="800" fill="#1E5FA8">7,1&nbsp;kW</text>
+          <rect x="315" y="84" width="90" height="166" rx="6" fill="#2D7DD2"/>
+          <text x="360" y="75" text-anchor="middle" font-size="13.5" font-weight="800" fill="#1E5FA8">7,6&nbsp;kW</text>
+          <!-- projected slot -->
+          <rect x="475" y="84" width="90" height="166" rx="6" fill="#0EA5A4" fill-opacity="0.16" stroke="#0EA5A4" stroke-width="2" stroke-dasharray="6 4"/>
+          <text x="520" y="75" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0E8A89">proiettato</text>
+          <!-- threshold + average -->
+          <line x1="120" y1="99" x2="620" y2="99" stroke="#E31937" stroke-width="2.4" stroke-dasharray="7 5"/>
+          <line x1="120" y1="87" x2="620" y2="87" stroke="#F6A609" stroke-width="2.4"/>
+          <!-- x labels -->
+          <g font-size="12" fill="#5A6B80" text-anchor="middle">
+            <text x="200" y="270">00–05'</text><text x="360" y="270">05–10'</text><text x="520" y="270">10–15'</text>
+          </g>
+        </svg>
+        <p class="note">Le letture ALFA vengono aggregate in tre slot da 5&nbsp;minuti allineati al quarto d'ora.
+        Se la <b>proiezione</b> supera la soglia contrattuale, il controller riduce la corrente — o sospende — senza attendere l'isteresi.</p>
+      </div>
+      <div>
+        <div class="card" style="padding:18px 22px;">
+          <h3 class="blk" style="font-size:15px;">Come rispetta il limite</h3>
+          <ol style="margin:12px 0 0 18px;font-size:14px;line-height:1.5;color:#28384f;">
+            <li style="margin-bottom:9px;"><b>Aggrega</b> le letture in tre slot da 5&nbsp;minuti.</li>
+            <li style="margin-bottom:9px;"><b>Proietta</b> gli slot mancanti tenendo il prelievo più recente.</li>
+            <li style="margin-bottom:9px;"><b>Confronta</b> con la soglia: se la supera, taglia la corrente.</li>
+            <li><b>Sospende e riprende</b> se serve — scelta economica, non protezione.</li>
+          </ol>
+        </div>
+        <div class="card" style="margin-top:14px;padding:16px 20px;background:#F3E8FF;border-color:#E3D3FA;">
+          <div style="font-size:13.5px;color:#5b3a9c;line-height:1.45;">📈&nbsp; In dashboard è evidenziata la <b>Quota Potenza</b>: la massima media quartoraria <b>completa</b> raggiunta nel mese.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Rispetto della potenza contrattuale del contatore</span><span class="pageno">06 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 7 — RUOLO RASPBERRY ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Il computer di campo</div><h2>Il ruolo della Raspberry Pi</h2></div>
+    <div class="pill">Raspberry Pi Zero 2 W</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:22px;">
+    <div class="twocol" style="grid-template-columns:1fr 1fr;">
+      <div>
+        <p class="lead" style="font-size:17px;">Una piccola <span class="hl">Raspberry Pi Zero&nbsp;2&nbsp;W</span>, collocata
+        <b>vicino all'auto</b>, è il cervello sempre acceso del sistema: parla con tutti i dispositivi
+        e decide in autonomia, senza dipendere dal cloud.</p>
+        <ul class="clean" style="margin-top:18px;">
+          <li><b>Sempre vicina alla Tesla:</b> la portata del Bluetooth richiede prossimità; per questo la Pi sta in garage/box, non in centralino.</li>
+          <li><b>Due servizi Linux autonomi</b> (systemd): il controller+dashboard e il bridge Tuya, riavviati automaticamente in caso di problemi.</li>
+          <li><b>Leggera e silenziosa:</b> nessun ventilatore, ~5&nbsp;W, gira 24/7 su una scheda da 512&nbsp;MB di RAM.</li>
+          <li><b>Tutto in locale:</b> letture, storico e decisioni restano in casa; il cloud serve solo per notifiche e app, se attivati.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card" style="padding:22px 24px;">
+          <h3 class="blk" style="font-size:16px;">Cosa fa ad ogni ciclo (ogni 5 minuti)</h3>
+          <svg width="500" height="262" viewBox="0 0 500 262" font-family="Inter,Arial">
+            <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#C51A4A"/></marker></defs>
+            <line x1="40" y1="44" x2="40" y2="228" stroke="#F0D2DC" stroke-width="3"/>
+            <g>
+              <circle cx="40" cy="44" r="9" fill="#C51A4A"/><circle cx="40" cy="90" r="9" fill="#C51A4A"/>
+              <circle cx="40" cy="136" r="9" fill="#C51A4A"/><circle cx="40" cy="182" r="9" fill="#C51A4A"/>
+              <circle cx="40" cy="228" r="9" fill="#16A34A"/>
+            </g>
+            <g font-size="14.5" fill="#1F2E42">
+              <text x="64" y="40" font-weight="800">Legge SolarEdge</text><text x="64" y="58" font-size="12.5" fill="#5A6B80">produzione FV</text>
+              <text x="64" y="86" font-weight="800">Legge VIMAR + ALFA</text><text x="64" y="104" font-size="12.5" fill="#5A6B80">consumi casa e scambio di rete</text>
+              <text x="64" y="132" font-weight="800">Legge la Tesla</text><text x="64" y="150" font-size="12.5" fill="#5A6B80">BLE o Wall Connector: stato, tensione, fasi</text>
+              <text x="64" y="178" font-weight="800">Media EWMA e salva</text><text x="64" y="196" font-size="12.5" fill="#5A6B80">media 5 min + snapshot SQLite</text>
+              <text x="64" y="224" font-weight="800" fill="#15803D">Regola l'amperaggio</text><text x="64" y="242" font-size="12.5" fill="#5A6B80">solo se necessario e consentito</text>
+            </g>
+          </svg>
+        </div>
+        <div class="metrics" style="margin-top:16px;">
+          <div class="metric"><div class="v" style="color:var(--rasp);font-size:28px;">2</div><div class="l">servizi systemd autonomi</div></div>
+          <div class="metric"><div class="v" style="color:var(--blue-d);font-size:28px;">90<span class="u">gg</span></div><div class="l">storico misure conservato</div></div>
+          <div class="metric"><div class="v" style="color:var(--green);font-size:28px;">0</div><div class="l">dipendenze dal cloud per decidere</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">07 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 8 — COLLEGAMENTO TESLA ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Mobilità elettrica</div><h2>Il collegamento alla Tesla</h2></div>
+    <div class="pill">Bluetooth LE ufficiale</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:22px;">
+    <div class="twocol" style="grid-template-columns:1fr 1fr;">
+      <div class="card" style="padding:22px 26px;">
+        <h3 class="blk" style="font-size:16px;">Come comunica con l'auto</h3>
+        <ul class="clean" style="margin-top:12px;">
+          <li>Usa <span class="mono chip">tesla-control</span>, lo strumento <b>ufficiale Tesla</b> per i veicoli, tramite <b>Bluetooth LE</b>.</li>
+          <li><b>Nessun account, password Tesla o cloud:</b> il BLE non richiede Fleet API, OAuth né dominio pubblico.</li>
+          <li>Abbinamento sicuro: una chiave privata generata sulla Pi e autorizzata in auto appoggiando la <b>card NFC</b> Tesla, con il ruolo minimo <span class="chip">charging_manager</span>.</li>
+          <li>La chiave privata <b>resta solo sulla Raspberry</b>: senza di essa nessuno può comandare l'auto.</li>
+          <li>In alternativa la potenza Tesla si legge dal <b>Wall Connector Gen&nbsp;3</b> locale (HTTP), senza svegliare l'auto.</li>
+        </ul>
+      </div>
+      <div class="card" style="padding:22px 26px;">
+        <h3 class="blk" style="font-size:16px;">Cosa fa — e cosa <u>non</u> fa</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+          <div style="display:flex;gap:11px;align-items:flex-start;background:#E7F6EE;border-radius:10px;padding:11px 14px;">
+            <span style="font-size:18px;">✓</span>
+            <div style="font-size:14.5px;color:#14532D;"><b>Legge</b> stato di carica, tensione, corrente e numero di fasi (comando <span class="mono">state&nbsp;charge</span>).</div>
+          </div>
+          <div style="display:flex;gap:11px;align-items:flex-start;background:#E7F6EE;border-radius:10px;padding:11px 14px;">
+            <span style="font-size:18px;">✓</span>
+            <div style="font-size:14.5px;color:#14532D;"><b>Imposta</b> solo l'amperaggio di ricarica (<span class="mono">charging-set-amps</span>).</div>
+          </div>
+          <div style="display:flex;gap:11px;align-items:flex-start;background:#FDECEC;border-radius:10px;padding:11px 14px;">
+            <span style="font-size:18px;">✕</span>
+            <div style="font-size:14.5px;color:#7F1D1D;"><b>Di norma non</b> avvia né ferma la carica e <b>non</b> sveglia l'auto; solo la <b>Quota Potenza</b> può sospendere/riprendere.</div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:14px;">Prima di agire verifica che l'auto sia sveglia e in carica, che l'orologio sia
+        sincronizzato (NTP) e che fasi e tensione siano nei limiti. Gli errori BLE sono classificati
+        (distanza, Bluetooth, chiave, orologio, stato auto) per la diagnosi a distanza.</p>
+      </div>
+    </div>
+    <div class="metrics" style="margin-top:20px;">
+      <div class="metric"><div class="v" style="color:var(--tesla);font-size:26px;">230&nbsp;V × 3</div><div class="l">trifase → 690&nbsp;W per ampere</div></div>
+      <div class="metric"><div class="v" style="color:var(--blue-d);font-size:26px;">1&ndash;16&nbsp;A</div><div class="l">range gestito · minimo configurabile fino a 1&nbsp;A</div></div>
+      <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">2&nbsp;cmd</div><div class="l">massimo per ciclo · chiamate BLE serializzate</div></div>
+      <div class="metric"><div class="v" style="color:var(--amber);font-size:26px;">NFC</div><div class="l">abbinamento una tantum con card Tesla</div></div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Protocollo veicoli ufficiale Tesla via BLE</span><span class="pageno">08 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 9 — LOGICA / SICUREZZE ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Il decisore</div><h2>La logica di controllo e le sicurezze</h2></div>
+    <div class="pill">Cautele integrate</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:18px;">
+    <div class="twocol" style="grid-template-columns:1.15fr .85fr;align-items:start;">
+      <div class="card" style="padding:18px 24px;">
+        <h3 class="blk" style="font-size:16px;">Catena di verifiche prima di ogni comando</h3>
+        <svg width="640" height="376" viewBox="0 0 640 376" font-family="Inter,Arial">
+          <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2D7DD2"/></marker></defs>
+          <g stroke="#2D7DD2" stroke-width="2.2" marker-end="url(#a4)">
+            <line x1="120" y1="46" x2="120" y2="74"/>
+            <line x1="120" y1="110" x2="120" y2="138"/>
+            <line x1="120" y1="174" x2="120" y2="202"/>
+            <line x1="120" y1="238" x2="120" y2="266"/>
+            <line x1="120" y1="302" x2="120" y2="330"/>
+          </g>
+          <!-- gate boxes -->
+          <g>
+            <rect x="20" y="20" width="200" height="26" rx="8" fill="#0A1F3C"/>
+            <text x="120" y="38" text-anchor="middle" font-size="13.5" font-weight="800" fill="#fff">L'auto è in carica?</text>
+
+            <rect x="20" y="84" width="200" height="26" rx="8" fill="#13355f"/>
+            <text x="120" y="102" text-anchor="middle" font-size="13.5" font-weight="700" fill="#fff">Tensione e fasi nei limiti?</text>
+
+            <rect x="20" y="148" width="200" height="26" rx="8" fill="#13355f"/>
+            <text x="120" y="166" text-anchor="middle" font-size="13.5" font-weight="700" fill="#fff">È override manuale?</text>
+
+            <rect x="20" y="212" width="200" height="26" rx="8" fill="#13355f"/>
+            <text x="120" y="230" text-anchor="middle" font-size="13.5" font-weight="700" fill="#fff">Calcola ampere obiettivo</text>
+
+            <rect x="20" y="276" width="200" height="26" rx="8" fill="#13355f"/>
+            <text x="120" y="294" text-anchor="middle" font-size="13.5" font-weight="700" fill="#fff">Variazione &gt; isteresi?</text>
+
+            <rect x="20" y="340" width="200" height="30" rx="8" fill="#16A34A"/>
+            <text x="120" y="360" text-anchor="middle" font-size="13.5" font-weight="800" fill="#fff">Invia / registra decisione</text>
+          </g>
+          <!-- side "no -> stop" -->
+          <g font-size="12" fill="#B91C1C" font-weight="700">
+            <text x="236" y="37">no → salta il ciclo</text>
+            <text x="236" y="101">no → salta (sicurezza)</text>
+            <text x="236" y="165">sì → non tocca nulla</text>
+            <text x="236" y="293">no → mantiene (hold)</text>
+          </g>
+          <g stroke="#E0A6A6" stroke-width="1.6" stroke-dasharray="4 4">
+            <line x1="220" y1="33" x2="232" y2="33"/>
+            <line x1="220" y1="97" x2="232" y2="97"/>
+            <line x1="220" y1="161" x2="232" y2="161"/>
+            <line x1="220" y1="289" x2="232" y2="289"/>
+          </g>
+          <!-- formula note -->
+          <text x="380" y="222" font-size="12.5" fill="#5A6B80">aggiunge max +2&nbsp;A/ciclo,</text>
+          <text x="380" y="240" font-size="12.5" fill="#5A6B80">rispetta la quota potenza</text>
+        </svg>
+      </div>
+      <div>
+        <div class="card" style="padding:18px 22px;">
+          <h3 class="blk" style="font-size:15.5px;">Le reti di sicurezza</h3>
+          <ul class="clean" style="margin-top:10px;">
+            <li style="font-size:14px;"><b>Dry-run di default:</b> calcola ma non invia, finché non è validato sul campo.</li>
+            <li style="font-size:14px;"><b>Salita lenta, discesa immediata:</b> +2&nbsp;A massimo per ciclo, riduzione subito.</li>
+            <li style="font-size:14px;"><b>Isteresi 1&nbsp;A:</b> niente comandi per micro-variazioni.</li>
+            <li style="font-size:14px;"><b>Quota potenza &amp; override manuale:</b> resta sotto la soglia quartoraria ALFA; se l'utente alza la corrente, il sistema si fa da parte.</li>
+            <li style="font-size:14px;"><b>Fail-safe:</b> a ogni errore di rete o dato, nessun comando viene inviato.</li>
+          </ul>
+        </div>
+        <div class="card" style="padding:14px 18px;margin-top:14px;background:#FFF8EC;border-color:#F3D9A6;">
+          <p style="font-size:13.5px;color:#7a5b12;line-height:1.45;"><b>⚠️ Importante:</b> è un controllo applicativo, <b>non</b> sostituisce
+          le protezioni elettriche (magnetotermico, differenziale) né un load-balancing certificato.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Logica di controllo conservativa</span><span class="pageno">09 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 10 — GIORNATA TIPO (CURVA) ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Esempio di funzionamento</div><h2>Una giornata tipo</h2></div>
+    <div class="pill">Profilo illustrativo</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:20px;">
+    <div class="card" style="padding:20px 26px;">
+      <h3 class="blk" style="font-size:16px;">Produzione FV e amperaggio Tesla nell'arco della giornata</h3>
+      <svg width="1110" height="330" viewBox="0 0 1110 330" font-family="Inter,Arial">
+        <defs>
+          <linearGradient id="pvfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#F6A609" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#F6A609" stop-opacity="0.03"/>
+          </linearGradient>
+        </defs>
+        <!-- charging window shade 06:00-19:00 -->
+        <rect x="170" y="20" width="760" height="250" fill="#EAF6F0" opacity="0.7"/>
+        <text x="550" y="40" text-anchor="middle" font-size="12.5" font-weight="700" fill="#15803D">finestra di ricarica 06:00 – 19:00</text>
+        <!-- axes -->
+        <line x1="70" y1="270" x2="1070" y2="270" stroke="#C9D5E3" stroke-width="1.5"/>
+        <line x1="70" y1="20" x2="70" y2="270" stroke="#C9D5E3" stroke-width="1.5"/>
+        <!-- x ticks (hours) -->
+        <g font-size="11.5" fill="#8295AB" text-anchor="middle">
+          <text x="90"  y="290">00</text><text x="170" y="290">06</text><text x="330" y="290">09</text>
+          <text x="490" y="290">12</text><text x="650" y="290">15</text><text x="810" y="290">18</text>
+          <text x="930" y="290">20</text><text x="1050" y="290">24</text>
+        </g>
+        <text x="555" y="318" text-anchor="middle" font-size="12.5" fill="#5A6B80">ora del giorno</text>
+        <!-- y label left (kW) -->
+        <g font-size="11" fill="#C99000" text-anchor="end">
+          <text x="62" y="270">0</text><text x="62" y="190">3</text><text x="62" y="110">6</text><text x="62" y="40">9 kW</text>
+        </g>
+        <!-- PV area: bell curve -->
+        <path d="M70,270 L170,262 C 300,250 380,120 490,70 C 600,120 700,250 830,262 L930,270 L1070,270 Z"
+              fill="url(#pvfill)" stroke="#F6A609" stroke-width="2.5"/>
+        <!-- house consumption (vimar) dashed -->
+        <path d="M70,250 L300,250 L320,205 L360,205 L380,250 L520,250 L540,195 L600,195 L620,250 L1070,250"
+              fill="none" stroke="#0EA5A4" stroke-width="2.4" stroke-dasharray="7 5"/>
+        <!-- Tesla amps step (right axis) -->
+        <path d="M170,250 L260,250 L260,200 L360,200 L360,150 L470,150 L470,120 L560,120 L560,175 L650,175 L650,135 L760,135 L760,210 L830,210 L830,250 L930,250"
+              fill="none" stroke="#E31937" stroke-width="2.8"/>
+        <!-- right axis amps -->
+        <g font-size="11" fill="#E31937" text-anchor="start">
+          <text x="1078" y="270">0</text><text x="1078" y="190">6</text><text x="1078" y="120">12</text><text x="1078" y="44">16 A</text>
+        </g>
+        <!-- annotation -->
+        <circle cx="560" cy="120" r="4.5" fill="#E31937"/>
+        <text x="568" y="112" font-size="11.5" fill="#9b1325" font-weight="700">picco consumi casa → meno ampere</text>
+      </svg>
+      <div class="legend" style="margin-top:14px;justify-content:center;">
+        <span><span class="dot" style="background:#F6A609;"></span>Produzione fotovoltaica (SolarEdge)</span>
+        <span><span class="dot" style="background:#0EA5A4;"></span>Consumo casa (VIMAR)</span>
+        <span><span class="dot" style="background:#E31937;"></span>Corrente di ricarica Tesla (A)</span>
+        <span><span class="dot" style="background:#EAF6F0;border:1px solid #b6dcc7;"></span>Finestra di ricarica</span>
+      </div>
+      <p class="note" style="text-align:center;">Esempio illustrativo del comportamento atteso: la corrente Tesla insegue il sole ma si abbassa
+      quando la casa accende i carichi pesanti, mantenendo il prelievo dalla rete entro il limite.</p>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Comportamento illustrativo del controller</span><span class="pageno">10 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 11 — SNAPSHOT REALE ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Bilancio energetico · esempio</div><h2>Snapshot a mezzogiorno</h2></div>
+    <div class="pill">Esempio illustrativo · ore 12:00</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:22px;">
+    <div class="twocol" style="grid-template-columns:1.25fr .75fr;align-items:center;">
+      <div class="card" style="padding:24px 28px;">
+        <h3 class="blk" style="font-size:16px;">Dove va l'energia prodotta dal sole</h3>
+        <svg width="690" height="250" viewBox="0 0 690 250" font-family="Inter,Arial">
+          <!-- production bar -->
+          <text x="0" y="44" font-size="13.5" font-weight="700" fill="#5A6B80">Sorgenti</text>
+          <!-- scale: 6731 W -> 600px, so 1W=0.0891px ; start x=80 -->
+          <rect x="80" y="30" width="586.6" height="34" rx="7" fill="#F6A609"/>
+          <text x="86" y="52" font-size="13.5" font-weight="800" fill="#fff">☀️ Fotovoltaico ~6.500 W</text>
+          <rect x="666.6" y="30" width="13.4" height="34" rx="3" fill="#64748B"/>
+          <text x="612" y="80" font-size="11.5" fill="#64748B">+ rete ~150 W</text>
+
+          <!-- arrow down -->
+          <g stroke="#C9D5E3" stroke-width="2"><line x1="370" y1="92" x2="370" y2="118" marker-end="url(#a5)"/></g>
+          <defs><marker id="a5" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#C9D5E3"/></marker></defs>
+
+          <!-- consumption bar -->
+          <text x="0" y="158" font-size="13.5" font-weight="700" fill="#5A6B80">Utilizzi</text>
+          <rect x="80" y="144" width="230.8" height="34" rx="7" fill="#0EA5A4"/>
+          <text x="86" y="166" font-size="13.5" font-weight="800" fill="#fff">🏠 Casa ~2.600 W</text>
+          <rect x="310.8" y="144" width="369.2" height="34" rx="7" fill="#E31937"/>
+          <text x="318" y="166" font-size="13.5" font-weight="800" fill="#fff">🚗 Tesla ~3.900 W (in ricarica)</text>
+
+          <!-- balance line -->
+          <text x="80" y="216" font-size="13.5" fill="#28384f">Bilancio: <tspan font-weight="800" fill="#0EA5A4">quasi tutta</tspan> la ricarica arriva dal sole; poca energia dalla rete (<tspan font-weight="800" fill="#64748B">export quasi nullo</tspan>).</text>
+        </svg>
+      </div>
+      <div>
+        <h3 class="blk" style="font-size:15px;margin-bottom:14px;">Ripartizione dei consumi</h3>
+        <svg width="360" height="210" viewBox="0 0 360 210" font-family="Inter,Arial">
+          <!-- donut: total 6731 ; Tesla 61.5% , Casa 38.5% -->
+          <g transform="translate(105,105)">
+            <circle r="74" fill="none" stroke="#0EA5A4" stroke-width="30"/>
+            <!-- Tesla arc 61.5% -->
+            <circle r="74" fill="none" stroke="#E31937" stroke-width="30"
+                    stroke-dasharray="285.9 178.9" transform="rotate(-90)"/>
+            <text x="0" y="-4" text-anchor="middle" font-size="22" font-weight="800" fill="#0F2238">~6.500</text>
+            <text x="0" y="16" text-anchor="middle" font-size="12" fill="#5A6B80">W totali</text>
+          </g>
+          <g font-size="13.5">
+            <rect x="210" y="74" width="14" height="14" rx="3" fill="#E31937"/>
+            <text x="232" y="86" font-weight="700" fill="#0F2238">Tesla · ~60%</text>
+            <rect x="210" y="104" width="14" height="14" rx="3" fill="#0EA5A4"/>
+            <text x="232" y="116" font-weight="700" fill="#0F2238">Casa · ~40%</text>
+          </g>
+        </svg>
+        <div class="metrics" style="margin-top:6px;">
+          <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">+0,9<span class="u">kW</span></div><div class="l">export mattutino tipico<br>prima dell'avvio carichi</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Esempio di bilancio a mezzogiorno</span><span class="pageno">11 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 12 — COME È STATO REALIZZATO (AI) ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Metodo di sviluppo</div><h2>Realizzato con Claude e Codex</h2></div>
+    <div class="pill">AI pair programming</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:22px;">
+    <p class="lead" style="font-size:17px;">Il software è stato progettato e scritto in <span class="hl">programmazione assistita dall'intelligenza
+    artificiale</span>: due assistenti di coding hanno lavorato come "colleghi", sotto guida e revisione umana.</p>
+    <div class="twocol" style="margin-top:18px;">
+      <div class="card" style="padding:20px 24px;border-top:4px solid var(--blue);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:42px;height:42px;border-radius:11px;background:#EAF2FB;display:flex;align-items:center;justify-content:center;font-size:22px;">🟣</div>
+          <div><b style="font-size:17px;">Claude</b> <span class="note" style="margin:0;">· Anthropic (Claude Code)</span></div>
+        </div>
+        <ul class="clean" style="margin-top:14px;">
+          <li style="font-size:14px;">Architettura a moduli, modello dati e <b>logica di controllo</b> con tutte le sicurezze.</li>
+          <li style="font-size:14px;"><b>Reverse engineering</b> dei protocolli VIMAR (API IP, firma RSA), SolarEdge e contatore ALFA.</li>
+          <li style="font-size:14px;">Suite di <b>test automatici</b> e gestione diagnostica degli errori.</li>
+        </ul>
+      </div>
+      <div class="card" style="padding:20px 24px;border-top:4px solid #10A37F;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:42px;height:42px;border-radius:11px;background:#E6F7F1;display:flex;align-items:center;justify-content:center;font-size:22px;">🟢</div>
+          <div><b style="font-size:17px;">Codex</b> <span class="note" style="margin:0;">· OpenAI</span></div>
+        </div>
+        <ul class="clean" style="margin-top:14px;">
+          <li style="font-size:14px;">Sviluppo iterativo di funzioni, <b>script di deploy</b> e provisioning Raspberry.</li>
+          <li style="font-size:14px;">Integrazione bridge <b>Tuya/Smart&nbsp;Life</b> (MQTT) e pannello web.</li>
+          <li style="font-size:14px;">Rifiniture, controllo incrociato del codice e correzioni rapide.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="padding:16px 22px;margin-top:18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#5A6B80;font-weight:700;">Metodo: specifica → test → implementazione → collaudo dry-run</div>
+      </div>
+      <div class="metrics" style="margin-top:14px;">
+        <div class="metric"><div class="v" style="color:var(--blue-d);font-size:30px;">21</div><div class="l">moduli Python (~8.700 righe)</div></div>
+        <div class="metric"><div class="v" style="color:var(--green);font-size:30px;">157</div><div class="l">test automatici · 9 suite</div></div>
+        <div class="metric"><div class="v" style="color:var(--rasp);font-size:30px;">11</div><div class="l">script di deploy / provisioning</div></div>
+        <div class="metric"><div class="v" style="color:var(--amber);font-size:30px;">6</div><div class="l">sistemi integrati (FV · rete · casa · auto · cloud)</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Sviluppo assistito da IA con revisione umana</span><span class="pageno">12 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 13 — SICUREZZA / PRIVACY ============================ -->
+<section class="slide">
+  <div class="topbar">
+    <div><div class="kicker">Affidabilità</div><h2>Sicurezza, privacy e robustezza</h2></div>
+    <div class="pill">By design</div>
+  </div>
+  <div class="accent"></div>
+  <div class="body" style="padding-top:24px;">
+    <div class="threecol">
+      <div class="card" style="padding:20px 22px;">
+        <div style="font-size:26px;">🔒</div>
+        <h3 class="blk" style="font-size:16px;margin-top:8px;">Dati e credenziali</h3>
+        <ul class="clean" style="margin-top:10px;">
+          <li style="font-size:13.5px;">Chiavi VIMAR, Tesla e credenziali (ALFA, SolarEdge) solo sulla Pi, permessi file ristretti (0600).</li>
+          <li style="font-size:13.5px;">VIN, password e token <b>mai mostrati</b> in dashboard né nei report.</li>
+          <li style="font-size:13.5px;">Tutte le connessioni locali cifrate (TLS / BLE autenticato).</li>
+        </ul>
+      </div>
+      <div class="card" style="padding:20px 22px;">
+        <div style="font-size:26px;">🛡️</div>
+        <h3 class="blk" style="font-size:16px;margin-top:8px;">Accesso e rete</h3>
+        <ul class="clean" style="margin-top:10px;">
+          <li style="font-size:13.5px;">Dashboard in ascolto solo in locale; accesso da remoto via <b>tunnel SSH</b>.</li>
+          <li style="font-size:13.5px;">Due ruoli: <b>admin</b> (configura) e <b>viewer</b> (osserva e accende/spegne).</li>
+          <li style="font-size:13.5px;">Storico cancellato automaticamente dopo 90 giorni.</li>
+        </ul>
+      </div>
+      <div class="card" style="padding:20px 22px;">
+        <div style="font-size:26px;">⚙️</div>
+        <h3 class="blk" style="font-size:16px;margin-top:8px;">Robustezza operativa</h3>
+        <ul class="clean" style="margin-top:10px;">
+          <li style="font-size:13.5px;">Ritenta gli errori transitori (BLE/rete) con attese crescenti.</li>
+          <li style="font-size:13.5px;">In caso di guasto persistente invia un <b>report e-mail</b> diagnostico.</li>
+          <li style="font-size:13.5px;">Servizi riavviati da systemd; il monitoraggio continua anche a controller spento.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin-top:22px;padding:20px 24px;background:#0A1F3C;border:none;color:#CFE0F4;">
+      <div style="display:flex;align-items:center;gap:18px;">
+        <div style="font-size:30px;">⚠️</div>
+        <div style="font-size:15.5px;line-height:1.5;">
+          <b style="color:#FFC233;">Confine chiaro di responsabilità.</b>
+          Il sistema è un <b style="color:#fff;">controllo applicativo</b> dell'energia: ottimizza la ricarica, ma non
+          sostituisce in alcun modo le protezioni elettriche dell'impianto, il dimensionamento dei cavi o un
+          load-balancing certificato. L'avvio e l'arresto della ricarica restano sempre <b style="color:#fff;">manuali</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">13 / 14</span></div>
+</section>
+
+<!-- ============================ SLIDE 14 — STATO / CHIUSURA ============================ -->
+<section class="slide cover" style="justify-content:flex-start;">
+  <div class="grid-bg"></div>
+  <div class="glowsun" style="opacity:.7;"></div>
+  <div class="cover-inner" style="padding-top:64px;">
+    <div class="brandrow">
+      <div class="brandmark">✓</div>
+      <div class="bt">Stato del progetto &nbsp;·&nbsp; Roadmap</div>
+    </div>
+    <h1 style="font-size:50px;">Pronto per l'<span class="accentword">esercizio</span></h1>
+    <div class="twocol" style="margin-top:34px;gap:34px;">
+      <div>
+        <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;margin-bottom:14px;">Già attivo oggi</div>
+        <ul class="clean" style="color:#dbe8f7;">
+          <li style="color:#dbe8f7;"><b style="color:#fff;">Raspberry Pi</b> collegata a SolarEdge, contatore ALFA, VIMAR e Tesla.</li>
+          <li style="color:#dbe8f7;"><b style="color:#fff;">Dashboard web</b>, <b style="color:#fff;">Quota Potenza</b> e bridge Smart Life operativi.</li>
+          <li style="color:#dbe8f7;">Lettura <b style="color:#fff;">per circuito</b> e snapshot energetici storicizzati in SQLite.</li>
+          <li style="color:#dbe8f7;">Funzionamento in <b style="color:#fff;">dry-run</b> per validazione sul campo.</li>
+        </ul>
+      </div>
+      <div>
+        <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;margin-bottom:14px;">Prossimi passi</div>
+        <ul class="clean" style="color:#dbe8f7;">
+          <li style="color:#dbe8f7;">Passaggio a <b style="color:#fff;">modalità live</b> dopo conferma di segno potenza, fasi e decisioni.</li>
+          <li style="color:#dbe8f7;">Validazione dei registri diagnostici <b style="color:#fff;">ALFA</b> (fasce, energie F1/F2/F3).</li>
+          <li style="color:#dbe8f7;">Affinamento della finestra solare <b style="color:#fff;">stagionale</b> (alba/tramonto).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="meta" style="bottom:46px;">
+    <div><span class="lbl">Progetto</span><b>Tesla Energy Controller</b>Autoconsumo solare · edge</div>
+    <div><span class="lbl">Piattaforma</span><b>Raspberry Pi · Python</b>Tutto in locale, cifrato</div>
+    <div><span class="lbl">Grazie</span><b>Domande?</b>Demo e documentazione tecnica</div>
+  </div>
+</section>
+
+</body>
+</html>

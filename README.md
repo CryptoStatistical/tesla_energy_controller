@@ -8,6 +8,12 @@ English version: [README.en.md](README.en.md)
 
 Preview inline della dashboard. Clicca sull'anteprima per aprire il video MP4 originale.
 
+## Materiali presentazione
+
+- [Presentazione tecnica PDF](docs/presentation/tesla-energy-controller-presentation.pdf)
+- [Presentazione tecnica HTML](docs/presentation/tesla-energy-controller-presentation.html)
+- [Anteprima HTML renderizzata](https://htmlpreview.github.io/?https://github.com/CryptoStatistical/tesla_energy_controller/blob/main/docs/presentation/tesla-energy-controller-presentation.html)
+
 Servizio Python che campiona produzione, consumo casa e stato Tesla in una rolling window RAM e
 salva/decide ogni 5 minuti per storico SQLite e controller. Prima del salvataggio applica una EWMA
 sugli ultimi 5 minuti, con peso maggiore ai valori più recenti. Dashboard e Tuya possono
