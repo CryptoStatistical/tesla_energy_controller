@@ -1050,16 +1050,24 @@
         return out;
       }
       function targetSeries() {
-        var out = [];
+        var filled = [];
         var last = null;
         points.forEach(function (point) {
           var v = point.target_w;
-          if (v == null) { out.push(last); return; }
-          if (Number(v) <= 0) { last = null; out.push(null); return; }
+          if (v == null) { filled.push(last); return; }
+          v = Number(v);
+          if (!Number.isFinite(v) || v <= 0) { last = null; filled.push(0); return; }
           last = v;
-          out.push(v);
+          filled.push(v);
         });
-        return out;
+        return filled.map(function (value, index) {
+          if (value == null) return null;
+          if (Number(value) > 0) return value;
+          var previous = index > 0 ? filled[index - 1] : null;
+          var next = index < filled.length - 1 ? filled[index + 1] : null;
+          return (previous != null && Number(previous) > 0) ||
+            (next != null && Number(next) > 0) ? 0 : null;
+        });
       }
       var alfaMode = Boolean(data.alfa_grid_reading_enabled);
       var consumptionDatasets = [
