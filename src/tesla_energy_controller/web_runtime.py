@@ -608,19 +608,19 @@ class WebRuntime:
         if not energy.get("tesla_connected"):
             data["target_a"] = 0
             return data
+        if not self.current.enabled:
+            return data
+        target_a = self.last_status.get("target_a")
+        if target_a is not None:
+            data["target_a"] = target_a
+            return data
         if (
-            action == "outside-window"
-            and self.current.enabled
+            action in {"outside-window", "preview"}
             and not window_active
             and self._wall_connector_charge_active(energy)
         ):
             data["target_a"] = self.current.min_charge_amps
             return data
-        if not (self.current.enabled and window_active):
-            return data
-        target_a = self.last_status.get("target_a")
-        if target_a is not None:
-            data["target_a"] = target_a
         return data
 
     @staticmethod

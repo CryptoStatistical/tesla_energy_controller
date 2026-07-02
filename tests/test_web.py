@@ -2017,6 +2017,74 @@ def test_wall_connector_active_outside_window_uses_minimum_target(
     assert status["message"] == "fuori finestra solare: corrente minima Tesla entro quota"
 
 
+def test_wall_connector_preview_keeps_outside_window_target(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+        power_quota_target_w=7000,
+        min_charge_amps=5,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=0,
+        source="solaredge-modbus",
+    )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=4500,
+                solar_power_w=0,
+                import_power_w=4500,
+                export_power_w=0,
+                source="alfa-modbus",
+            )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=5.0,
+                phase_currents_a=(5.0, 5.0, 5.0),
+                power_w=3450,
+                evse_state=9,
+            )
+
+    runtime.alfa_grid = AlfaMeter()
+    runtime.wall_connector = Wall()
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Charging",
+        current_request_a=5,
+        current_request_max_a=16,
+        actual_current_a=5,
+        phases=3,
+        voltage_v=230,
+    )
+
+    now = datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome"))
+    control_status = runtime.run_cycle(now)
+    preview_status = runtime.run_cycle(now.replace(minute=1), control=False, persist=False)
+
+    assert control_status["target_a"] == 5
+    assert preview_status["state"] == "preview"
+    assert preview_status["target_a"] == 5
+
+
 def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
     monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
     monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
