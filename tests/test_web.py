@@ -834,6 +834,52 @@ def test_series_target_w_is_zero_when_tesla_is_offline(monkeypatch, tmp_path):
         assert series["points"][-1]["target_w"] == 0
 
 
+def test_series_target_w_is_zero_when_wall_connector_is_disconnected(
+    monkeypatch, tmp_path
+):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.db.add_measurement(
+        {
+            "observed_at": "2026-06-25T13:00:00+02:00",
+            "solar_power_w": 5000,
+            "vimar_power_w": 700,
+            "tesla_power_w": 3500,
+            "total_consumption_w": 4200,
+            "import_power_w": 0,
+            "export_power_w": 800,
+            "tesla_current_a": 6,
+            "tesla_target_a": 5,
+            "controller_enabled": True,
+            "action": "set",
+        },
+        [],
+    )
+    runtime.db.add_measurement(
+        {
+            "observed_at": "2026-06-25T13:05:00+02:00",
+            "solar_power_w": 5000,
+            "vimar_power_w": 700,
+            "tesla_power_w": 0,
+            "total_consumption_w": 700,
+            "import_power_w": 0,
+            "export_power_w": 4300,
+            "tesla_current_a": None,
+            "tesla_target_a": None,
+            "controller_enabled": True,
+            "action": "wall-connector-monitor",
+            "reason": "Dati Tesla da Wall Connector; BLE non interrogato",
+        },
+        [],
+    )
+    with app.test_client() as client:
+        login(client)
+        series = client.get("/api/series").get_json()
+        assert series["points"][0]["target_w"] > 0
+        assert series["points"][-1]["target"] == 0
+        assert series["points"][-1]["target_w"] == 0
+
+
 def test_series_target_w_is_zero_outside_solar_window(monkeypatch, tmp_path):
     # Fuori dalla finestra solare (notte) il controller non gestisce la ricarica:
     # il target deve essere 0 anche se la Tesla assorbe per conto suo (schedule
@@ -1769,6 +1815,7 @@ def test_wall_connector_data_source_does_not_query_tesla_ble(monkeypatch, tmp_pa
     assert status["tesla_power_w"] == 0
     assert status["tesla_power_source"] == "wall-connector"
     assert status["tesla_connected"] is False
+    assert status["target_a"] == 0
     assert status["tesla_ble_control_required"] is False
     assert status["tesla_ble_control_state"] == "not-needed"
     assert status["actual_current_a"] is None
@@ -2377,6 +2424,7 @@ def test_tesla_unreachable_keeps_energy_monitoring(monkeypatch, tmp_path):
     assert status["state"] == "tesla-offline"
     assert status["message"] == "Tesla non raggiungibile via BLE"
     assert status["tesla_connected"] is False
+    assert status["target_a"] == 0
     assert "solar_power_w" in status
     assert status["tesla_power_w"] == 0
     assert status["tesla_current_a"] is None

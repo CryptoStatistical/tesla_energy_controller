@@ -20,6 +20,7 @@ STATUS_FIELDS = (
     "total_consumption_w",
     "import_power_w",
     "export_power_w",
+    "target_a",
     "tesla_current_a",
     "current_a",
     "tesla_connected",

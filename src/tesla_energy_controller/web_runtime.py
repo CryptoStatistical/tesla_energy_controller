@@ -603,7 +603,10 @@ class WebRuntime:
 
     def _preview_decision_data(self, action: str, energy: dict, window_active: bool) -> dict:
         data = {"action": action}
-        if not (self.current.enabled and window_active and energy.get("tesla_connected")):
+        if not energy.get("tesla_connected"):
+            data["target_a"] = 0
+            return data
+        if not (self.current.enabled and window_active):
             return data
         target_a = self.last_status.get("target_a")
         if target_a is not None:
@@ -1549,12 +1552,13 @@ class WebRuntime:
             )
         return anomalies[-limit:]
 
-    def _target_power_w(self, row: dict, house_power_w: float) -> float | None:
+    @staticmethod
+    def _target_zero_marker(row: dict) -> bool:
         # Controller non attivo (fuori finestra solare, disabilitato o Tesla
         # offline): non gestisce la ricarica, quindi nessun target da mostrare.
         # Ritorna 0 esplicito così la linea scende a zero senza forward-fill.
         tesla_state_text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
-        if any(
+        return any(
             marker in tesla_state_text
             for marker in (
                 "tesla-offline",
@@ -1565,16 +1569,38 @@ class WebRuntime:
                 "disabled",
                 "disabilitato",
             )
-        ):
+        )
+
+    @staticmethod
+    def _tesla_power_is_zero(row: dict) -> bool:
+        try:
+            return float(row.get("tesla_power_w") or 0.0) <= 0
+        except (TypeError, ValueError):
+            return True
+
+    def _target_a_for_series(self, row: dict) -> float | None:
+        if self._target_zero_marker(row):
             return 0.0
         target_a = row.get("tesla_target_a")
         if target_a is None:
+            if self._tesla_power_is_zero(row):
+                return 0.0
             return None
         try:
-            tesla_target_w = (
-                float(target_a)
-                * self.hard.nominal_phase_voltage_v
-                * max(self.hard.expected_phases, 1)
+            return max(float(target_a), 0.0)
+        except (TypeError, ValueError):
+            return None
+
+    def _target_power_w(self, row: dict, house_power_w: float) -> float | None:
+        target_a = self._target_a_for_series(row)
+        if target_a is None:
+            return None
+        if target_a <= 0:
+            return 0.0
+        try:
+            tesla_target_w = target_a * self.hard.nominal_phase_voltage_v * max(
+                self.hard.expected_phases,
+                1,
             )
             return max(house_power_w, 0.0) + tesla_target_w
         except (TypeError, ValueError):
@@ -1617,7 +1643,7 @@ class WebRuntime:
                         entries, bucket_start, lambda row: row.get("tesla_current_a")
                     ),
                     "target": _weighted_value(
-                        entries, bucket_start, lambda row: row.get("tesla_target_a")
+                        entries, bucket_start, self._target_a_for_series
                     ),
                     "target_w": _weighted_value(
                         entries,
