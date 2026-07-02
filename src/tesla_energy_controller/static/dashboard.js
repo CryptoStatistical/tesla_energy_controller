@@ -1103,6 +1103,13 @@
           stack: "target",
           borderColor: "#ef4444",
           backgroundColor: "#ef4444",
+          segment: {
+            borderColor: function (ctx) {
+              var y0 = ctx.p0 && ctx.p0.parsed ? Number(ctx.p0.parsed.y) : null;
+              var y1 = ctx.p1 && ctx.p1.parsed ? Number(ctx.p1.parsed.y) : null;
+              return y0 === 0 && y1 === 0 ? "#000000" : "#ef4444";
+            }
+          },
           borderWidth: 3.5,
           pointRadius: 0,
           pointHoverRadius: 4,
