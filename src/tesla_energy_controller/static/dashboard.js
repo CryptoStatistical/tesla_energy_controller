@@ -1110,7 +1110,7 @@
               return y0 === 0 && y1 === 0 ? "#000000" : "#ef4444";
             }
           },
-          borderWidth: 3.5,
+          borderWidth: 2.2,
           pointRadius: 0,
           pointHoverRadius: 4,
           tension: 0,
