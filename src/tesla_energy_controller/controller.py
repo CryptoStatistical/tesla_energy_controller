@@ -407,6 +407,111 @@ class EnergyController:
             and import_power_w > self.grid_import_limit_w
         )
 
+    def decide_minimum_from_snapshot(
+        self,
+        measurement: GridMeasurement,
+        car: ChargeState,
+        *,
+        projected_quarter_hour_import_w: float | None,
+        power_quota_limit_w: float | None,
+        power_quota_hysteresis_w: float = 0.0,
+        manual_override_amps: int | None = None,
+    ) -> Decision:
+        if not car.is_charging:
+            return self._not_charging_decision(car)
+        if manual_override_amps is not None and car.current_request_a >= manual_override_amps:
+            return self._decision(
+                "manual-override",
+                f"override manuale: Tesla impostata a {car.current_request_a} A",
+                measurement=measurement,
+                car=car,
+                target_a=car.current_request_a,
+            )
+        safety_decision = self._safety_decision(car, measurement)
+        if safety_decision is not None:
+            return safety_decision
+        if not measurement.fresh:
+            return self._stale_measurement_decision(measurement, car)
+
+        car_limit = car.current_request_max_a or self.max_charge_amps
+        upper = min(self.max_charge_amps, car_limit)
+        if manual_override_amps is not None:
+            upper = min(upper, manual_override_amps - 1)
+        upper = max(0, upper)
+        if upper <= 0:
+            target = 0
+            quota_reason = "limite di corrente non disponibile"
+        else:
+            target = min(self.min_charge_amps, upper)
+            quota_reason = "fuori finestra solare: corrente minima Tesla entro quota"
+
+        voltage = car.voltage_v or self.nominal_phase_voltage_v
+        watts_per_amp = voltage * self.expected_phases
+        import_power_w = measurement.import_power_w
+        if import_power_w is None:
+            import_power_w = max(float(measurement.total_power_w), 0.0)
+        import_power_w = max(float(import_power_w), 0.0)
+
+        if power_quota_limit_w is not None and projected_quarter_hour_import_w is not None:
+            projected_import_w = max(float(projected_quarter_hour_import_w), 0.0)
+            if projected_import_w > power_quota_limit_w + power_quota_hysteresis_w:
+                excess_w = projected_import_w - power_quota_limit_w
+                target = max(0, car.current_request_a - math.ceil(excess_w / watts_per_amp))
+                target = min(target, upper)
+                if target < self.min_charge_amps:
+                    if target > 0:
+                        quota_reason = "proiezione 15 min oltre quota: corrente sotto minimo"
+                    else:
+                        quota_reason = "proiezione 15 min oltre quota: sospensione Tesla"
+                else:
+                    quota_reason = "proiezione 15 min oltre quota: corrente ridotta"
+            elif import_power_w > power_quota_limit_w + self.grid_hold_band_w:
+                excess_w = import_power_w - power_quota_limit_w
+                target = max(0, car.current_request_a - math.ceil(excess_w / watts_per_amp))
+                target = min(target, upper)
+                if target < self.min_charge_amps:
+                    if target > 0:
+                        quota_reason = "import ALFA oltre quota: corrente sotto minimo"
+                    else:
+                        quota_reason = "import ALFA oltre quota: sospensione Tesla"
+                else:
+                    quota_reason = "import ALFA oltre quota: corrente ridotta"
+
+        if target == 0 and not self.dry_run:
+            self.vehicle.stop_charging()
+            self._paused_for_power_quota = True
+            return self._decision(
+                "stop",
+                quota_reason,
+                measurement=measurement,
+                car=car,
+                target_a=0,
+            )
+        if abs(target - car.current_request_a) < self.command_hysteresis_a:
+            return self._decision(
+                "hold",
+                quota_reason,
+                measurement=measurement,
+                car=car,
+                target_a=target,
+            )
+        if self.dry_run:
+            return self._decision(
+                "dry-run",
+                quota_reason,
+                measurement=measurement,
+                car=car,
+                target_a=target,
+            )
+        self.vehicle.set_charging_amps(target)
+        return self._decision(
+            "set",
+            quota_reason,
+            measurement=measurement,
+            car=car,
+            target_a=target,
+        )
+
     def decide_from_snapshot(
         self,
         measurement: GridMeasurement,

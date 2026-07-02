@@ -36,6 +36,8 @@ SERIES_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 4
 ROLLING_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 3
 SOLAREDGE_MODBUS_CONNECT_GRACE = timedelta(minutes=5)
 SOLAREDGE_MODBUS_CONNECT_EVENT = "solaredge_modbus_connect_degraded"
+WALL_CONNECTOR_CHARGE_MIN_CURRENT_A = 1.0
+WALL_CONNECTOR_CHARGE_MIN_POWER_W = 500.0
 
 
 def _read_energy_points_from_settings(settings: Settings):
@@ -606,12 +608,35 @@ class WebRuntime:
         if not energy.get("tesla_connected"):
             data["target_a"] = 0
             return data
+        if (
+            action == "outside-window"
+            and self.current.enabled
+            and not window_active
+            and self._wall_connector_charge_active(energy)
+        ):
+            data["target_a"] = self.current.min_charge_amps
+            return data
         if not (self.current.enabled and window_active):
             return data
         target_a = self.last_status.get("target_a")
         if target_a is not None:
             data["target_a"] = target_a
         return data
+
+    @staticmethod
+    def _wall_connector_charge_active(energy: dict) -> bool:
+        if not energy.get("tesla_connected"):
+            return False
+        if bool(energy.get("wall_connector_contactor_closed")):
+            return True
+        current_a = _as_float(energy.get("actual_current_a"))
+        if current_a is None:
+            current_a = _as_float(energy.get("tesla_current_a"))
+        power_w = _as_float(energy.get("tesla_power_w"))
+        return (
+            (current_a is not None and current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A)
+            or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
+        )
 
     def _alfa_meter_measurement(self, primary):
         if primary.source == "alfa-modbus":
@@ -674,9 +699,13 @@ class WebRuntime:
                 quota_resume_pending = bool(
                     getattr(self.controller, "_paused_for_power_quota", False)
                 )
-                tesla_ble_control_required = wants_ble_control and (
+                wall_charge_active = (
                     wall_vitals.contactor_closed
-                    or wall_vitals.power_w > 0
+                    or wall_vitals.vehicle_current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A
+                    or wall_vitals.power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W
+                )
+                tesla_ble_control_required = wants_ble_control and (
+                    wall_charge_active
                     or quota_resume_pending
                 )
                 self._threshold_event(
@@ -938,7 +967,9 @@ class WebRuntime:
             }
             try:
                 car, measurement, energy, appliances = self._read_snapshot(
-                    stamp, wants_ble_control=self.current.enabled and window.active
+                    stamp,
+                    wants_ble_control=self.current.enabled
+                    and (window.active or self.hard.tesla_data_source == "wall-connector"),
                 )
             except Exception as exc:
                 if self._defer_solaredge_modbus_connect_error(exc, cycle_time, window_data):
@@ -1040,6 +1071,13 @@ class WebRuntime:
                         "power_quota_sample_count": demand.sample_count,
                     }
                 )
+            outside_window_wall_control = (
+                control
+                and self.current.enabled
+                and not window.active
+                and self.hard.tesla_data_source == "wall-connector"
+                and self._wall_connector_charge_active(energy)
+            )
             decision = None
             try:
                 if not control:
@@ -1054,7 +1092,7 @@ class WebRuntime:
                     state = "disabled"
                     message = "Controller ricarica disabilitato dal pannello"
                     action = "disabled"
-                elif not window.active:
+                elif not window.active and not outside_window_wall_control:
                     state = "outside-window"
                     message = f"Fuori dalla finestra solare {window.label}"
                     action = "outside-window"
@@ -1073,19 +1111,31 @@ class WebRuntime:
                         message = "Tesla non raggiungibile via BLE"
                         action = "tesla-offline"
                 else:
-                    decision = self.controller.decide_from_snapshot(
-                        control_measurement,
-                        car,
-                        non_tesla_power_w=max(energy["house_power_w"], 0.0),
-                        extra_grid_power_w=self.current.extra_grid_power_w,
-                        manual_override_amps=self.current.manual_override_amps,
-                        use_meter_reading=meter_available,
-                        projected_quarter_hour_import_w=(
-                            demand.projected_average_w if demand is not None else None
-                        ),
-                        power_quota_limit_w=effective_power_quota_w,
-                        power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
-                    )
+                    if outside_window_wall_control:
+                        decision = self.controller.decide_minimum_from_snapshot(
+                            control_measurement,
+                            car,
+                            projected_quarter_hour_import_w=(
+                                demand.projected_average_w if demand is not None else None
+                            ),
+                            power_quota_limit_w=effective_power_quota_w,
+                            power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
+                            manual_override_amps=self.current.manual_override_amps,
+                        )
+                    else:
+                        decision = self.controller.decide_from_snapshot(
+                            control_measurement,
+                            car,
+                            non_tesla_power_w=max(energy["house_power_w"], 0.0),
+                            extra_grid_power_w=self.current.extra_grid_power_w,
+                            manual_override_amps=self.current.manual_override_amps,
+                            use_meter_reading=meter_available,
+                            projected_quarter_hour_import_w=(
+                                demand.projected_average_w if demand is not None else None
+                            ),
+                            power_quota_limit_w=effective_power_quota_w,
+                            power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
+                        )
                     state = "ok"
                     message = decision.reason
                     action = decision.action
@@ -1553,19 +1603,32 @@ class WebRuntime:
         return anomalies[-limit:]
 
     @staticmethod
-    def _target_zero_marker(row: dict) -> bool:
-        # Controller non attivo (fuori finestra solare, disabilitato o Tesla
-        # offline): non gestisce la ricarica, quindi nessun target da mostrare.
+    def _target_outside_window_marker(row: dict) -> bool:
+        tesla_state_text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
+        return "outside-window" in tesla_state_text or "fuori dalla finestra" in tesla_state_text
+
+    @staticmethod
+    def _target_row_tesla_active(row: dict) -> bool:
+        current_a = _as_float(row.get("tesla_current_a"))
+        power_w = _as_float(row.get("tesla_power_w"))
+        return (
+            (current_a is not None and current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A)
+            or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
+        )
+
+    def _target_zero_marker(self, row: dict) -> bool:
+        # Controller non attivo (disabilitato, Tesla offline, oppure fuori
+        # finestra senza ricarica reale): nessun target da mostrare.
         # Ritorna 0 esplicito così la linea scende a zero senza forward-fill.
         tesla_state_text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
+        if self._target_outside_window_marker(row):
+            return not self._target_row_tesla_active(row)
         return any(
             marker in tesla_state_text
             for marker in (
                 "tesla-offline",
                 "tesla offline",
                 "non raggiungibile",
-                "outside-window",
-                "fuori dalla finestra",
                 "disabled",
                 "disabilitato",
             )
@@ -1583,6 +1646,8 @@ class WebRuntime:
             return 0.0
         target_a = row.get("tesla_target_a")
         if target_a is None:
+            if self._target_outside_window_marker(row) and self._target_row_tesla_active(row):
+                return float(self.current.min_charge_amps)
             if self._tesla_power_is_zero(row):
                 return 0.0
             return None

@@ -880,10 +880,12 @@ def test_series_target_w_is_zero_when_wall_connector_is_disconnected(
         assert series["points"][-1]["target_w"] == 0
 
 
-def test_series_target_w_is_zero_outside_solar_window(monkeypatch, tmp_path):
-    # Fuori dalla finestra solare (notte) il controller non gestisce la ricarica:
-    # il target deve essere 0 anche se la Tesla assorbe per conto suo (schedule
-    # propria) e non va forward-fillato l'ultimo target diurno.
+def test_series_target_w_uses_minimum_outside_solar_window_when_tesla_active(
+    monkeypatch,
+    tmp_path,
+):
+    # Fuori dalla finestra solare il target non insegue il FV, ma se la Tesla
+    # sta assorbendo davvero resta visibile come minimo monitorato.
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
     runtime.db.add_measurement(
@@ -911,7 +913,7 @@ def test_series_target_w_is_zero_outside_solar_window(monkeypatch, tmp_path):
             "total_consumption_w": 3700,
             "import_power_w": 3700,
             "export_power_w": 0,
-            "tesla_current_a": None,
+            "tesla_current_a": 5,
             "tesla_target_a": None,
             "controller_enabled": True,
             "action": "outside-window",
@@ -923,7 +925,8 @@ def test_series_target_w_is_zero_outside_solar_window(monkeypatch, tmp_path):
         login(client)
         series = client.get("/api/series").get_json()
         assert series["points"][0]["target_w"] > 0
-        assert series["points"][-1]["target_w"] == 0
+        assert series["points"][-1]["target"] == 5
+        assert series["points"][-1]["target_w"] == 400 + 5 * 230 * 3
 
 
 def test_static_assets_are_cache_busted(monkeypatch, tmp_path):
@@ -1880,6 +1883,138 @@ def test_wall_connector_active_charge_uses_ble_for_control(monkeypatch, tmp_path
     assert status["tesla_ble_connected"] is True
     assert status["tesla_ble_control_required"] is True
     assert status["tesla_ble_control_state"] == "connected"
+
+
+def test_wall_connector_standby_outside_window_does_not_query_tesla_ble(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=1000,
+        solar_power_w=0,
+        import_power_w=1000,
+        export_power_w=0,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("BLE non deve essere interrogato in standby Wall Connector")
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=92,
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+
+    status = runtime.run_cycle(datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] == "outside-window"
+    assert status["action"] == "outside-window"
+    assert status["tesla_power_w"] == 92
+    assert status["tesla_ble_control_required"] is False
+    assert status.get("target_a") is None
+
+
+def test_wall_connector_active_outside_window_uses_minimum_target(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+        extra_grid_power_w=3000,
+        power_quota_target_w=7000,
+        power_quota_hysteresis_w=500,
+        min_charge_amps=5,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=0,
+        import_power_w=None,
+        export_power_w=None,
+        source="solaredge-modbus",
+    )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=4445,
+                solar_power_w=0,
+                import_power_w=4445,
+                export_power_w=0,
+                source="alfa-modbus",
+            )
+
+    ble_calls = {"count": 0}
+
+    def get_charge_state():
+        ble_calls["count"] += 1
+        return ChargeState(
+            charging_state="Charging",
+            current_request_a=5,
+            current_request_max_a=16,
+            actual_current_a=5,
+            phases=3,
+            voltage_v=230,
+            charger_power_kw=3.4,
+        )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=5.0,
+                phase_currents_a=(5.0, 5.0, 5.0),
+                power_w=3442,
+                evse_state=9,
+            )
+
+    runtime.alfa_grid = AlfaMeter()
+    runtime.wall_connector = Wall()
+    runtime.controller.vehicle.get_charge_state = get_charge_state
+
+    status = runtime.run_cycle(datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert ble_calls["count"] == 1
+    assert status["window_active"] is False
+    assert status["state"] == "ok"
+    assert status["action"] == "hold"
+    assert status["target_a"] == 5
+    assert status["tesla_ble_control_required"] is True
+    assert status["tesla_ble_control_state"] == "connected"
+    assert status["message"] == "fuori finestra solare: corrente minima Tesla entro quota"
 
 
 def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
