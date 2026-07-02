@@ -345,20 +345,21 @@
     if (flowEl) {
       var flowStrong = flowEl.querySelector("strong");
       if (flowStrong) {
-        var imp = Math.round(Number(data.import_power_w) || 0);
-        var exp = Math.round(Number(data.export_power_w) || 0);
+        var imp = Number(data.import_power_w) || 0;
+        var exp = Number(data.export_power_w) || 0;
+        var net = Math.round(imp - exp);
         flowStrong.textContent = "";
         flowStrong.className = "flow-value";
         var num = document.createElement("span");
-        if (exp > 0) {
+        if (net < 0) {
           num.className = "flow-export";
-          num.textContent = exp + " W";
+          num.textContent = Math.abs(net) + " W";
           flowStrong.appendChild(document.createTextNode("("));
           flowStrong.appendChild(num);
           flowStrong.appendChild(document.createTextNode(")"));
         } else {
           num.className = "flow-import";
-          num.textContent = imp + " W";
+          num.textContent = net + " W";
           flowStrong.appendChild(num);
         }
       }

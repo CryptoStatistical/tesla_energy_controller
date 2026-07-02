@@ -2247,6 +2247,43 @@ def test_alfa_keeps_five_minute_control_interval(monkeypatch, tmp_path):
     assert runtime.status_payload()["poll_interval_seconds"] == 300
 
 
+def test_dashboard_flow_metric_uses_net_grid_balance(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.last_status.update(
+        {
+            "import_power_w": 560,
+            "export_power_w": 448,
+            "solar_power_w": 6200,
+            "tesla_power_w": 4600,
+            "total_consumption_w": 6312,
+        }
+    )
+
+    with app.test_client() as client:
+        login(client)
+        html = client.get("/").get_data(as_text=True)
+
+    flow = re.search(r'<article class="metric panel" id="flowMetric".*?</article>', html)
+    assert flow
+    assert "112 W" in flow.group(0)
+    assert "448 W" not in flow.group(0)
+
+
+def test_dashboard_flow_metric_shows_net_export(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.last_status.update({"import_power_w": 100, "export_power_w": 450})
+
+    with app.test_client() as client:
+        login(client)
+        html = client.get("/").get_data(as_text=True)
+
+    flow = re.search(r'<article class="metric panel" id="flowMetric".*?</article>', html)
+    assert flow
+    assert '(<span class="flow-export">350 W</span>)' in flow.group(0)
+
+
 def test_dashboard_shows_selected_tesla_data_source(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     with app.test_client() as client:
