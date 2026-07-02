@@ -1111,6 +1111,8 @@
             }
           },
           borderWidth: 2.2,
+          borderDash: [8, 5],
+          borderDashOffset: 0,
           pointRadius: 0,
           pointHoverRadius: 4,
           tension: 0,
