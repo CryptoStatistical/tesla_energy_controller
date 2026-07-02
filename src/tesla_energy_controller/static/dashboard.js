@@ -1049,6 +1049,18 @@
         });
         return out;
       }
+      function targetSeries() {
+        var out = [];
+        var last = null;
+        points.forEach(function (point) {
+          var v = point.target_w;
+          if (v == null) { out.push(last); return; }
+          if (Number(v) <= 0) { last = null; out.push(null); return; }
+          last = v;
+          out.push(v);
+        });
+        return out;
+      }
       var alfaMode = Boolean(data.alfa_grid_reading_enabled);
       var consumptionDatasets = [
         {
@@ -1099,17 +1111,10 @@
         },
         {
           label: "Target Tesla",
-          data: series("target_w"),
+          data: targetSeries(),
           stack: "target",
           borderColor: "#ef4444",
           backgroundColor: "#ef4444",
-          segment: {
-            borderColor: function (ctx) {
-              var y0 = ctx.p0 && ctx.p0.parsed ? Number(ctx.p0.parsed.y) : null;
-              var y1 = ctx.p1 && ctx.p1.parsed ? Number(ctx.p1.parsed.y) : null;
-              return y0 === 0 && y1 === 0 ? "#000000" : "#ef4444";
-            }
-          },
           borderWidth: 2.2,
           borderDash: [8, 5],
           borderDashOffset: 0,
@@ -1118,7 +1123,7 @@
           tension: 0,
           order: -10,
           fill: false,
-          spanGaps: true
+          spanGaps: false
         }
       );
       return {
