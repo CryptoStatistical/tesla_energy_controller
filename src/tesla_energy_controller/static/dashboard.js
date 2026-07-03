@@ -76,7 +76,8 @@
   function gridWattsPerAmp() {
     var note = document.getElementById("extraGridKw");
     var voltage = note ? (Number(note.getAttribute("data-voltage")) || 230) : 230;
-    var phases = note ? (Number(note.getAttribute("data-phases")) || 1) : 1;
+    var phaseField = document.getElementById("expected_phases");
+    var phases = phaseField ? Number(phaseField.value) : (note ? Number(note.getAttribute("data-phases")) : 1);
     return voltage * Math.max(phases, 1);
   }
 
@@ -793,7 +794,10 @@
         form.setAttribute("data-dirty", "1");
         updateExtraGridKw();
       });
-      form.addEventListener("change", function () { form.setAttribute("data-dirty", "1"); });
+      form.addEventListener("change", function () {
+        form.setAttribute("data-dirty", "1");
+        updateExtraGridKw();
+      });
     }
     form.addEventListener("submit", function (event) {
       event.preventDefault();

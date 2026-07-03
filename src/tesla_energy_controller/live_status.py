@@ -13,6 +13,7 @@ STATUS_FIELDS = (
     "message",
     "action",
     "controller_enabled",
+    "expected_phases",
     "solar_power_w",
     "house_power_w",
     "appliances_power_w",

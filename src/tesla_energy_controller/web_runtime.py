@@ -250,6 +250,7 @@ class WebRuntime:
         self.store = RuntimeSettingsStore(hard.runtime_settings_file, hard)
         self.current = self.store.load()
         self._active_solar_source = ""
+        self._active_expected_phases = 0
         self._solar_source_started_at = datetime.now(timezone.utc).astimezone()
         self._apply_runtime_settings(self.current)
         self.alfa_grid = None
@@ -265,7 +266,7 @@ class WebRuntime:
             self.wall_connector = WallConnectorClient(
                 hard.wall_connector_host,
                 timeout_seconds=hard.wall_connector_timeout_seconds,
-                phases=hard.wall_connector_phases,
+                phases=self.current.expected_phases,
                 min_current_a=hard.wall_connector_min_current_a,
                 minimum_interval_seconds=hard.wall_connector_poll_interval_seconds,
             )
@@ -333,18 +334,31 @@ class WebRuntime:
             "alfa_grid_reading_enabled": bool(row.get("alfa_grid_reading_enabled")),
         }
 
-    def _solar_grid_for(self, source: str):
+    def _solar_grid_for(self, source: str, expected_phases: int):
         try:
-            return build_grid_source(self.hard, source)
+            return build_grid_source(
+                self.hard,
+                source,
+                expected_phases=expected_phases,
+            )
         except ConfigurationError as exc:
             raise RuntimeSettingsError(str(exc)) from exc
 
     def _apply_runtime_settings(self, settings: RuntimeSettings) -> None:
-        if settings.solar_source != self._active_solar_source:
-            self.controller.grid = self._solar_grid_for(settings.solar_source)
+        if (
+            settings.solar_source != self._active_solar_source
+            or settings.expected_phases != self._active_expected_phases
+        ):
+            self.controller.grid = self._solar_grid_for(
+                settings.solar_source,
+                settings.expected_phases,
+            )
             self._active_solar_source = settings.solar_source
+            self._active_expected_phases = settings.expected_phases
             self._solar_source_started_at = datetime.now(timezone.utc).astimezone()
         settings.apply(self.controller)
+        if getattr(self, "wall_connector", None) is not None:
+            self.wall_connector.phases = settings.expected_phases
 
     def control_interval_seconds(self) -> int:
         # Decisioni controller e campioni SQLite restano volutamente lenti:
@@ -983,7 +997,7 @@ class WebRuntime:
             "energy_source": self.hard.energy_source,
             "solar_source": self.current.solar_source,
             "poll_interval_seconds": control_interval_seconds,
-            "expected_phases": self.hard.expected_phases,
+            "expected_phases": self.current.expected_phases,
             "max_charge_amps": self.hard.max_charge_amps,
             "tesla_transport": self.hard.tesla_transport,
             "tesla_data_source": self.hard.tesla_data_source,
@@ -1542,6 +1556,7 @@ class WebRuntime:
         status["power_quota_target_w"] = self.current.power_quota_target_w
         status["power_quota_hysteresis_w"] = self.current.power_quota_hysteresis_w
         status["manual_override_amps"] = self.current.manual_override_amps
+        status["expected_phases"] = self.current.expected_phases
         status["monthly_peak_import_w"] = self.monthly_peak_import_w()
         status["tesla_data_source"] = self.hard.tesla_data_source
         status["wall_connector_configured"] = bool(self.hard.wall_connector_host)
@@ -1765,7 +1780,7 @@ class WebRuntime:
             return 0.0
         try:
             tesla_target_w = target_a * self.hard.nominal_phase_voltage_v * max(
-                self.hard.expected_phases,
+                self.current.expected_phases,
                 1,
             )
             return max(house_power_w, 0.0) + tesla_target_w

@@ -12,8 +12,14 @@ from .solar import (
 from .tesla import MockTeslaClient, TeslaBLEClient, TeslaFleetClient, TeslaTokenStore
 
 
-def build_grid_source(settings: Settings, source: str | None = None):
+def build_grid_source(
+    settings: Settings,
+    source: str | None = None,
+    *,
+    expected_phases: int | None = None,
+):
     selected = (source or settings.energy_source).strip().casefold()
+    phase_count = settings.expected_phases if expected_phases is None else expected_phases
     if selected == "mock":
         return MockGridSource(
             settings.mock_grid_power_w,
@@ -46,7 +52,7 @@ def build_grid_source(settings: Settings, source: str | None = None):
             settings.solaredge_modbus_port,
             settings.solaredge_modbus_unit,
             settings.solaredge_meter_base,
-            settings.expected_phases,
+            phase_count,
             settings.solaredge_grid_power_sign,
             settings.solaredge_inverter_base,
         )

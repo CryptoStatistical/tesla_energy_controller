@@ -515,10 +515,18 @@
             <input name="power_quota_target_w" type="hidden" value="{{ current.power_quota_target_w }}">
             {% endif %}
             <div>
+              <label for="expected_phases">Tipo impianto</label>
+              <select id="expected_phases" name="expected_phases">
+                <option value="1" {% if current.expected_phases == 1 %}selected{% endif %}>Monofase</option>
+                <option value="3" {% if current.expected_phases == 3 %}selected{% endif %}>Trifase</option>
+              </select>
+              <span class="field-note">Usato per convertire A↔W nei target Tesla.</span>
+            </div>
+            <div>
               <label for="extra_grid_power_a">Extra rete (A)</label>
-              {% set extra_amps = current.extra_grid_power_w / (hard.nominal_phase_voltage_v * hard.expected_phases) %}
+              {% set extra_amps = current.extra_grid_power_w / (hard.nominal_phase_voltage_v * current.expected_phases) %}
               <input id="extra_grid_power_a" name="extra_grid_power_a" type="number" min="0" step="0.1" value="{{ '%.1f'|format(extra_amps) }}" required>
-              <span class="field-note" id="extraGridKw" data-voltage="{{ hard.nominal_phase_voltage_v }}" data-phases="{{ hard.expected_phases }}">≈ {{ '%.2f'|format(current.extra_grid_power_w / 1000) }} kW</span>
+              <span class="field-note" id="extraGridKw" data-voltage="{{ hard.nominal_phase_voltage_v }}" data-phases="{{ current.expected_phases }}">≈ {{ '%.2f'|format(current.extra_grid_power_w / 1000) }} kW</span>
             </div>
             <div><label for="manual_override_amps">Override manuale da (A)</label><input id="manual_override_amps" name="manual_override_amps" type="number" min="{{ hard.min_charge_amps }}" max="{{ hard.max_charge_amps }}" value="{{ current.manual_override_amps }}" required></div>
             <div><label for="min_charge_amps">Corrente minima (A)</label><input id="min_charge_amps" name="min_charge_amps" type="number" min="1" max="{{ hard.max_charge_amps }}" value="{{ current.min_charge_amps }}" required></div>

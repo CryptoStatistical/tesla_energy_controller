@@ -73,6 +73,7 @@ def valid_settings_payload(token: str, **overrides):
         "sunrise_offset_minutes": "0",
         "sunset_offset_minutes": "0",
         "solar_source": "mock",
+        "expected_phases": "3",
         "extra_grid_power_a": "2",
         "manual_override_amps": "16",
         "min_voltage_v": "205",
@@ -1382,6 +1383,30 @@ def test_settings_json_save_and_validation(monkeypatch, tmp_path):
         payload = response.get_json()
         assert response.status_code == 400
         assert "Extra rete" in payload["error"]
+
+
+def test_settings_can_switch_to_single_phase(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    with app.test_client() as client:
+        login(client)
+        page = client.get("/").text
+        token = csrf(page)
+        assert '<option value="1"' in page
+        assert "Monofase" in page
+        response = client.post(
+            "/settings",
+            data=valid_settings_payload(token, expected_phases="1", extra_grid_power_a="2"),
+            headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+        )
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["current"]["expected_phases"] == 1
+    assert payload["current"]["extra_grid_power_w"] == 2 * 230
+    assert payload["config"]["expected_phases"] == 1
+    assert runtime.current.expected_phases == 1
+    assert runtime.controller.expected_phases == 1
 
 
 def test_settings_rejects_unconfigured_solaredge_modbus(monkeypatch, tmp_path):

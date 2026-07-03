@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 
 from .config import Settings
@@ -75,6 +75,7 @@ class RuntimeSettings:
     fixed_end_time: str
     latitude: float | None
     longitude: float | None
+    expected_phases: int
     sunrise_offset_minutes: int
     sunset_offset_minutes: int
     extra_grid_power_w: float
@@ -123,6 +124,7 @@ class RuntimeSettings:
             fixed_end_time="19:00",
             latitude=settings.solar_latitude,
             longitude=settings.solar_longitude,
+            expected_phases=settings.expected_phases,
             sunrise_offset_minutes=0,
             sunset_offset_minutes=0,
             extra_grid_power_w=settings.extra_grid_power_w,
@@ -189,6 +191,7 @@ class RuntimeSettings:
                 fixed_end_time=clock(values["fixed_end_time"]),
                 latitude=optional_float(values.get("latitude")),
                 longitude=optional_float(values.get("longitude")),
+                expected_phases=int(values.get("expected_phases", settings.expected_phases)),
                 sunrise_offset_minutes=int(values["sunrise_offset_minutes"]),
                 sunset_offset_minutes=int(values["sunset_offset_minutes"]),
                 extra_grid_power_w=float(values["extra_grid_power_w"]),
@@ -271,6 +274,8 @@ class RuntimeSettings:
             raise RuntimeSettingsError("Latitudine non valida")
         if self.longitude is not None and not -180 <= self.longitude <= 180:
             raise RuntimeSettingsError("Longitudine non valida")
+        if self.expected_phases not in {1, 3}:
+            raise RuntimeSettingsError("Tipo impianto non valido: usare monofase o trifase")
         if not -180 <= self.sunrise_offset_minutes <= 180:
             raise RuntimeSettingsError("Offset alba ammesso: -180/+180 minuti")
         if not -180 <= self.sunset_offset_minutes <= 180:
@@ -354,6 +359,7 @@ class RuntimeSettings:
             raise RuntimeSettingsError("La finestra anomalie deve avere inizio e fine diversi")
 
     def apply(self, controller: EnergyController) -> None:
+        controller.expected_phases = self.expected_phases
         controller.min_voltage_v = self.min_voltage_v
         controller.max_voltage_v = self.max_voltage_v
         controller.min_charge_amps = self.min_charge_amps
@@ -369,6 +375,19 @@ class RuntimeSettings:
             vehicle.retries = self.tesla_ble_retries
         if hasattr(vehicle, "recovery_enabled"):
             vehicle.recovery_enabled = self.tesla_ble_recovery_enabled
+        if hasattr(vehicle, "state") and getattr(vehicle.state, "phases", None) is not None:
+            state = vehicle.state
+            charger_power_kw = (
+                state.actual_current_a
+                * state.voltage_v
+                * max(self.expected_phases, 1)
+                / 1000.0
+            )
+            vehicle.state = replace(
+                state,
+                phases=self.expected_phases,
+                charger_power_kw=charger_power_kw,
+            )
 
 
 class RuntimeSettingsStore:

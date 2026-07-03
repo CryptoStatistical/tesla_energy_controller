@@ -251,7 +251,10 @@ def create_app(
         extra_a = values.pop("extra_grid_power_a", None)
         if extra_a not in (None, ""):
             try:
-                watts_per_amp = settings.nominal_phase_voltage_v * max(settings.expected_phases, 1)
+                expected_phases = int(
+                    values.get("expected_phases") or runtime.current.expected_phases
+                )
+                watts_per_amp = settings.nominal_phase_voltage_v * max(expected_phases, 1)
                 values["extra_grid_power_w"] = str(float(extra_a) * watts_per_amp)
             except ValueError:
                 pass
