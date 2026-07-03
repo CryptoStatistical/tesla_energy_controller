@@ -1367,6 +1367,7 @@ class WebRuntime:
                 f"Tesla impostata manualmente a {car.current_request_a} A: controller non interviene",
                 "info",
                 {"current_a": car.current_request_a, "threshold_a": self.current.manual_override_amps},
+                mail_enabled=False,
             )
         self._check_tesla_night_power(status)
 
@@ -1482,6 +1483,8 @@ class WebRuntime:
             details=details,
         )
         if kind.startswith("tesla_ble_unreachable"):
+            return
+        if mail_enabled is False:
             return
         self.refresh_mail_recipients()
         original_enabled = self.event_reporter.enabled

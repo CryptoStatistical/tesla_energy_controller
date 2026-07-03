@@ -1082,6 +1082,28 @@ def test_error_log_can_be_cleared_by_admin(monkeypatch, tmp_path):
         assert runtime.db.latest_events()[0]["kind"] == "manual_override"
 
 
+def test_manual_override_event_is_logged_without_email(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    notifications = []
+    runtime.event_reporter.notify = lambda *args, **kwargs: notifications.append((args, kwargs))
+
+    car = ChargeState("Charging", 16, 32, 15.8, 3, 230)
+    runtime._check_events({"window_active": True, "tesla_power_w": 11000}, car)
+
+    events = runtime.db.latest_events()
+    assert events[0]["kind"] == "manual_override"
+    assert events[0]["level"] == "info"
+    assert notifications == []
+
+    car = ChargeState("Complete", 0, 32, 0, 3, 230)
+    runtime._check_events({"window_active": True, "tesla_power_w": 0}, car)
+
+    events = runtime.db.latest_events()
+    assert events[0]["kind"] == "manual_override_recovered"
+    assert notifications == []
+
+
 def test_admin_can_download_backup_archive(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app, _settings = application(monkeypatch, tmp_path)
