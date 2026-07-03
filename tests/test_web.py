@@ -697,6 +697,33 @@ def test_series_target_w_is_home_plus_tesla_target(monkeypatch, tmp_path):
         assert series["points"][-1]["target_w"] == 700 + 5 * 230 * 3
 
 
+def test_series_flags_manual_override_target(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.db.add_measurement(
+        {
+            "observed_at": "2026-06-25T13:00:00+02:00",
+            "solar_power_w": 5000,
+            "vimar_power_w": 700,
+            "tesla_power_w": 10488,
+            "total_consumption_w": 11200,
+            "import_power_w": 6200,
+            "export_power_w": 0,
+            "tesla_current_a": 15.8,
+            "tesla_target_a": 16,
+            "controller_enabled": True,
+            "action": "manual-override",
+            "reason": "override manuale: Tesla impostata a 16 A",
+        },
+        [],
+    )
+    with app.test_client() as client:
+        login(client)
+        point = client.get("/api/series").get_json()["points"][-1]
+        assert point["target"] == 16
+        assert point["manual_override"] is True
+
+
 def test_series_exposes_house_for_main_chart_in_alfa_mode(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
@@ -1883,6 +1910,67 @@ def test_wall_connector_active_charge_uses_ble_for_control(monkeypatch, tmp_path
     assert status["tesla_ble_connected"] is True
     assert status["tesla_ble_control_required"] is True
     assert status["tesla_ble_control_state"] == "connected"
+
+
+def test_wall_connector_preview_marks_manual_override_from_actual_current(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        manual_override_amps=16,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=4200,
+        solar_power_w=7200,
+        import_power_w=4200,
+        export_power_w=0,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Charging",
+        current_request_a=6,
+        current_request_max_a=16,
+        actual_current_a=15.8,
+        phases=3,
+        voltage_v=230,
+        charger_power_kw=10.5,
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=15.8,
+                phase_currents_a=(15.8, 15.8, 15.8),
+                power_w=10488,
+                evse_state=11,
+            )
+
+    runtime.wall_connector = Wall()
+
+    status = runtime.run_cycle(
+        datetime(2026, 7, 3, 13, 28, tzinfo=ZoneInfo("Europe/Rome")),
+        control=False,
+        persist=False,
+    )
+
+    assert status["manual_override_active"] is True
+    assert status["action"] == "manual-override"
+    assert status["target_a"] == 16
+    assert status["message"] == "override manuale: Tesla impostata a 16 A"
+    assert status["house_power_w"] >= status["vimar_power_w"]
 
 
 def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_path):

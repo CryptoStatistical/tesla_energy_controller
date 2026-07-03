@@ -247,6 +247,22 @@ def test_budget_mode_respects_manual_override_threshold():
     assert vehicle.commands == []
 
 
+def test_budget_mode_detects_manual_override_from_actual_current():
+    measurement = GridMeasurement(total_power_w=0, solar_power_w=12000)
+    car = ChargeState("Charging", 6, 32, 15.8, 3, 230)
+    subject, vehicle = controller(measurement, car, max_charge_amps=16)
+    decision = subject.decide_from_snapshot(
+        measurement,
+        car,
+        non_tesla_power_w=0,
+        extra_grid_power_w=2000,
+        manual_override_amps=16,
+    )
+    assert decision.action == "manual-override"
+    assert decision.target_a == 16
+    assert vehicle.commands == []
+
+
 def test_meter_closed_loop_increases_after_stable_surplus():
     measurement = GridMeasurement(
         total_power_w=-1500,

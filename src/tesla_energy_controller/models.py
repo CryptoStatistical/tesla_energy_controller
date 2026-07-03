@@ -71,6 +71,8 @@ class Decision:
     reason: str
     current_a: int | None = None
     target_a: int | None = None
+    manual_override_active: bool = False
+    manual_override_a: int | None = None
     grid_power_w: float | None = None
     solar_power_w: float | None = None
     voltage_v: float | None = None

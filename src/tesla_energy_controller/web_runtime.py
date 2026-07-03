@@ -41,6 +41,7 @@ WALL_CONNECTOR_CHARGE_MIN_POWER_W = 500.0
 TESLA_COMPLETE_BLE_RESUME_CURRENT_A = 3.0
 TESLA_COMPLETE_BLE_RESUME_POWER_W = 2000.0
 TESLA_NIGHT_POWER_LIMIT_W = 300.0
+MANUAL_OVERRIDE_TOLERANCE_A = 0.5
 
 
 def _read_energy_points_from_settings(settings: Settings):
@@ -71,7 +72,7 @@ def _stored_house_power_w(row: dict) -> float:
     stored_house = float(row.get("total_consumption_w") or 0) - float(
         row.get("tesla_power_w") or 0
     )
-    return max(stored_house, 0.0)
+    return max(stored_house, float(row.get("vimar_power_w") or 0), 0.0)
 
 
 def _stored_device_power_w(row: dict) -> float:
@@ -626,6 +627,31 @@ class WebRuntime:
             data["target_a"] = self.current.min_charge_amps
             return data
         return data
+
+    def _manual_override_current_a(self, status: dict) -> float | None:
+        threshold = float(self.current.manual_override_amps)
+        values = [
+            _as_float(status.get("current_a")),
+            _as_float(status.get("tesla_current_a")),
+            _as_float(status.get("actual_current_a")),
+        ]
+        current_a = max((value for value in values if value is not None), default=None)
+        if current_a is None or current_a < threshold - MANUAL_OVERRIDE_TOLERANCE_A:
+            return None
+        return current_a
+
+    def _annotate_manual_override_status(self, status: dict) -> None:
+        override_a = self._manual_override_current_a(status)
+        active = override_a is not None
+        status["manual_override_active"] = active
+        if not active:
+            return
+        display_a = int(round(override_a))
+        status["manual_override_a"] = display_a
+        status["target_a"] = display_a
+        status["action"] = "manual-override"
+        status["state"] = "manual-override"
+        status["message"] = f"override manuale: Tesla impostata a {display_a} A"
 
     @staticmethod
     def _wall_connector_charge_active(energy: dict) -> bool:
@@ -1220,6 +1246,7 @@ class WebRuntime:
                     },
                     email_report=mail_result.message,
                 )
+            self._annotate_manual_override_status(self.last_status)
             if persist:
                 self._store_measurement(self.last_status, appliances)
                 self._check_events(self.last_status, car)
@@ -1525,6 +1552,7 @@ class WebRuntime:
             "tesla_ble_control_message",
             "Stato Bluetooth non disponibile dalla cache",
         )
+        self._annotate_manual_override_status(status)
         uptime = max(
             0,
             int(
@@ -1724,6 +1752,11 @@ class WebRuntime:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _row_manual_override(row: dict) -> bool:
+        text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
+        return "manual-override" in text or "override manuale" in text
+
     def _target_power_w(self, row: dict, house_power_w: float) -> float | None:
         target_a = self._target_a_for_series(row)
         if target_a is None:
@@ -1777,6 +1810,9 @@ class WebRuntime:
                     ),
                     "target": _weighted_value(
                         entries, bucket_start, self._target_a_for_series
+                    ),
+                    "manual_override": any(
+                        self._row_manual_override(row) for _stamp, row in entries
                     ),
                     "target_w": _weighted_value(
                         entries,

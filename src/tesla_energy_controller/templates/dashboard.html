@@ -127,7 +127,7 @@
       <article class="metric panel" data-metric="tesla_power_w" data-unit=" W"><span>Tesla</span><strong>{{ metric(status.get('tesla_power_w'), ' W') }}</strong></article>
       <article class="metric panel" data-metric="total_consumption_w" data-unit=" W"><span>Consumo Totale</span><strong>{{ metric(status.get('total_consumption_w'), ' W') }}</strong></article>
       <article class="metric panel" data-metric="monthly_peak_import_w" data-unit=" W"><span>Quota Potenza</span><strong>{{ metric(monthly_peak_import_w|default(0), ' W') }}</strong></article>
-      <article class="metric panel" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><strong>{{ metric(status.get('target_a'), ' A') }}</strong></article>
+      <article class="metric panel {% if status.get('manual_override_active') %}metric-override{% endif %}" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><strong>{{ metric(status.get('target_a'), ' A') }}</strong></article>
     </section>
 
     <section class="panel chart-card" id="chartCard" data-series-url="{{ url_for('api_series') }}">

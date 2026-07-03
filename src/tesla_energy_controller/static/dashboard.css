@@ -235,6 +235,8 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .metric strong.flow-value span { display: inline; font: inherit; }
 .metric strong.flow-value .flow-import { color: #f43f5e; }
 .metric strong.flow-value .flow-export { color: #eab308; }
+.metric.metric-override { border-color: rgba(139, 92, 246, 0.62); box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.12) inset; }
+.metric.metric-override strong { color: #a78bfa; }
 .m-solar { color: #eab308; }
 .m-casa { color: var(--text); }
 .vin-hl { color: #f97316; }

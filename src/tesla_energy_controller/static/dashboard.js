@@ -384,6 +384,9 @@
       var decimals = Number(node.getAttribute("data-decimals") || "0");
       var target = node.querySelector("strong");
       if (target) target.textContent = formatValue(data[key], unit, decimals);
+      if (key === "target_a") {
+        node.classList.toggle("metric-override", Boolean(data.manual_override_active));
+      }
     });
   }
 
@@ -1069,6 +1072,15 @@
             (next != null && Number(next) > 0) ? 0 : null;
         });
       }
+      function targetSegmentColor(ctx) {
+        var p0 = points[ctx.p0DataIndex] || {};
+        var p1 = points[ctx.p1DataIndex] || {};
+        if (p0.manual_override || p1.manual_override) return "#8b5cf6";
+        var y0 = ctx.p0 && ctx.p0.parsed ? Number(ctx.p0.parsed.y) : null;
+        var y1 = ctx.p1 && ctx.p1.parsed ? Number(ctx.p1.parsed.y) : null;
+        if (y0 === 0 && y1 === 0) return "#020617";
+        return "#ef4444";
+      }
       var alfaMode = Boolean(data.alfa_grid_reading_enabled);
       var consumptionDatasets = [
         {
@@ -1129,6 +1141,9 @@
           pointRadius: 0,
           pointHoverRadius: 4,
           tension: 0,
+          segment: {
+            borderColor: targetSegmentColor
+          },
           order: -10,
           fill: false,
           spanGaps: false

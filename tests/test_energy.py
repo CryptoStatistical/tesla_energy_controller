@@ -36,7 +36,7 @@ def test_house_is_zero_without_real_import_and_export():
     assert breakdown.meter_balance_available is False
 
 
-def test_negative_residual_is_clamped_to_zero_consumption():
+def test_meter_house_never_drops_below_known_appliances():
     breakdown = reconcile_energy_flows(
         solar_power_w=5000,
         appliances_power_w=1000,
@@ -46,5 +46,5 @@ def test_negative_residual_is_clamped_to_zero_consumption():
     )
 
     assert breakdown.device_power_w == 0
-    assert breakdown.house_power_w == 600
+    assert breakdown.house_power_w == 1000
     assert breakdown.total_consumption_w == 3600

@@ -40,7 +40,7 @@ def reconcile_energy_flows(
         imported = max(float(import_power_w), 0.0)
         exported = max(float(export_power_w), 0.0)
         total = max(solar + imported - exported, 0.0)
-        house = max(total - tesla, 0.0)
+        house = max(total - tesla, appliances, 0.0)
         device = max(house - appliances, 0.0)
     else:
         imported = estimated_import

@@ -8,6 +8,14 @@ from .tesla import VehicleClient
 
 
 _UNSET = object()
+MANUAL_OVERRIDE_TOLERANCE_A = 0.5
+
+
+def _manual_override_current_a(car: ChargeState, threshold_a: int | float) -> float | None:
+    current_a = max(float(car.current_request_a), float(car.actual_current_a))
+    if current_a < float(threshold_a) - MANUAL_OVERRIDE_TOLERANCE_A:
+        return None
+    return current_a
 
 
 class EnergyController:
@@ -78,6 +86,8 @@ class EnergyController:
             reason,
             current_a=current,
             target_a=target_a,
+            manual_override_active=action == "manual-override",
+            manual_override_a=target_a if action == "manual-override" else None,
             grid_power_w=measurement.total_power_w if measurement is not None else None,
             solar_power_w=measurement.solar_power_w if measurement is not None else None,
             voltage_v=car.voltage_v if car is not None else None,
@@ -419,13 +429,19 @@ class EnergyController:
     ) -> Decision:
         if not car.is_charging:
             return self._not_charging_decision(car)
-        if manual_override_amps is not None and car.current_request_a >= manual_override_amps:
+        override_a = (
+            _manual_override_current_a(car, manual_override_amps)
+            if manual_override_amps is not None
+            else None
+        )
+        if override_a is not None:
+            display_a = int(round(override_a))
             return self._decision(
                 "manual-override",
-                f"override manuale: Tesla impostata a {car.current_request_a} A",
+                f"override manuale: Tesla impostata a {display_a} A",
                 measurement=measurement,
                 car=car,
-                target_a=car.current_request_a,
+                target_a=display_a,
             )
         safety_decision = self._safety_decision(car, measurement)
         if safety_decision is not None:
@@ -557,13 +573,19 @@ class EnergyController:
                 return resumed
         if not car.is_charging:
             return self._not_charging_decision(car)
-        if manual_override_amps is not None and car.current_request_a >= manual_override_amps:
+        override_a = (
+            _manual_override_current_a(car, manual_override_amps)
+            if manual_override_amps is not None
+            else None
+        )
+        if override_a is not None:
+            display_a = int(round(override_a))
             return self._decision(
                 "manual-override",
-                f"override manuale: Tesla impostata a {car.current_request_a} A",
+                f"override manuale: Tesla impostata a {display_a} A",
                 measurement=measurement,
                 car=car,
-                target_a=car.current_request_a,
+                target_a=display_a,
             )
         safety_decision = self._safety_decision(car, measurement)
         if safety_decision is not None:
