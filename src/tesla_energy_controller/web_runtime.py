@@ -40,6 +40,7 @@ WALL_CONNECTOR_CHARGE_MIN_CURRENT_A = 1.0
 WALL_CONNECTOR_CHARGE_MIN_POWER_W = 500.0
 TESLA_COMPLETE_BLE_RESUME_CURRENT_A = 3.0
 TESLA_COMPLETE_BLE_RESUME_POWER_W = 2000.0
+TESLA_NIGHT_POWER_LIMIT_W = 300.0
 
 
 def _read_energy_points_from_settings(settings: Settings):
@@ -1326,6 +1327,41 @@ class WebRuntime:
                 "info",
                 {"current_a": car.current_request_a, "threshold_a": self.current.manual_override_amps},
             )
+        self._check_tesla_night_power(status)
+
+    def _check_tesla_night_power(self, status: dict) -> None:
+        power_w = _as_float(status.get("tesla_power_w")) or 0.0
+        active = (
+            self.hard.tesla_data_source == "wall-connector"
+            and status.get("window_active") is False
+            and power_w > TESLA_NIGHT_POWER_LIMIT_W
+        )
+        details = {
+            "component": "wall_connector",
+            "tesla_power_w": round(power_w),
+            "threshold_w": round(TESLA_NIGHT_POWER_LIMIT_W),
+            "window_active": status.get("window_active"),
+            "action": status.get("action"),
+            "target_a": status.get("target_a"),
+            "tesla_connected": status.get("tesla_connected"),
+            "wall_connector_vehicle_connected": status.get("wall_connector_vehicle_connected"),
+            "wall_connector_contactor_closed": status.get("wall_connector_contactor_closed"),
+        }
+        if active and "tesla_night_power_high" not in self.active_events:
+            LOG.warning(
+                "assorbimento Tesla notturno sopra soglia: %.0f W > %.0f W",
+                power_w,
+                TESLA_NIGHT_POWER_LIMIT_W,
+            )
+        self._threshold_event(
+            "tesla_night_power_high",
+            active,
+            f"Assorbimento Tesla notturno sopra soglia: {power_w:.0f} W > "
+            f"{TESLA_NIGHT_POWER_LIMIT_W:.0f} W",
+            "warning",
+            details,
+            mail_enabled=False,
+        )
 
     def _check_anomaly_events(self, stamp: str, appliances: list[dict]) -> None:
         active_keys = set()

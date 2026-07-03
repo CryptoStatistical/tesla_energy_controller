@@ -2014,6 +2014,60 @@ def test_wall_connector_standby_outside_window_does_not_query_tesla_ble(
     assert status.get("target_a") is None
 
 
+def test_wall_connector_logs_tesla_night_power_over_300_w(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=1200,
+        solar_power_w=0,
+        import_power_w=1200,
+        export_power_w=0,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("BLE non deve essere interrogato per il residuo notturno")
+    )
+    wall = {"current_a": 0.4, "power_w": 350.0}
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=wall["current_a"],
+                phase_currents_a=(wall["current_a"], 0.0, 0.0),
+                power_w=wall["power_w"],
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+
+    high = runtime.run_cycle(datetime(2026, 7, 3, 23, tzinfo=ZoneInfo("Europe/Rome")))
+    wall.update({"power_w": 100.0})
+    recovered = runtime.run_cycle(datetime(2026, 7, 3, 23, 5, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert high["tesla_power_w"] == 350
+    assert recovered["tesla_power_w"] < 300
+    events = runtime.db.latest_events(5)
+    assert events[1]["kind"] == "tesla_night_power_high"
+    assert events[1]["level"] == "warning"
+    assert events[1]["message"] == "Assorbimento Tesla notturno sopra soglia: 350 W > 300 W"
+    details = json.loads(events[1]["details_json"])
+    assert details["threshold_w"] == 300
+    assert events[0]["kind"] == "tesla_night_power_high_recovered"
+
+
 def test_wall_connector_active_outside_window_uses_minimum_target(
     monkeypatch,
     tmp_path,
