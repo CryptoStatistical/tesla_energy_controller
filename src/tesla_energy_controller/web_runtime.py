@@ -38,6 +38,8 @@ SOLAREDGE_MODBUS_CONNECT_GRACE = timedelta(minutes=5)
 SOLAREDGE_MODBUS_CONNECT_EVENT = "solaredge_modbus_connect_degraded"
 WALL_CONNECTOR_CHARGE_MIN_CURRENT_A = 1.0
 WALL_CONNECTOR_CHARGE_MIN_POWER_W = 500.0
+TESLA_COMPLETE_BLE_RESUME_CURRENT_A = 3.0
+TESLA_COMPLETE_BLE_RESUME_POWER_W = 2000.0
 
 
 def _read_energy_points_from_settings(settings: Settings):
@@ -289,6 +291,7 @@ class WebRuntime:
         self._solaredge_modbus_down_since: datetime | None = None
         self._last_appliances: list[dict] = []
         self._vimar_retry_after: datetime | None = None
+        self._tesla_complete_ble_standby = False
         self.last_status: dict = (
             self._status_from_measurement(latest_measurement[0])
             if latest_measurement
@@ -638,6 +641,27 @@ class WebRuntime:
             or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
         )
 
+    def _complete_ble_standby_active(self, wall_vitals) -> bool:
+        if not self._tesla_complete_ble_standby:
+            return False
+        if not (wall_vitals.vehicle_connected or wall_vitals.contactor_closed):
+            self._tesla_complete_ble_standby = False
+            return False
+        if (
+            wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
+            or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
+        ):
+            self._tesla_complete_ble_standby = False
+            return False
+        return True
+
+    def _remember_ble_charge_state(self, car) -> None:
+        charging_state = str(getattr(car, "charging_state", "") or "").casefold()
+        if charging_state == "complete":
+            self._tesla_complete_ble_standby = True
+        elif getattr(car, "is_charging", False):
+            self._tesla_complete_ble_standby = False
+
     def _alfa_meter_measurement(self, primary):
         if primary.source == "alfa-modbus":
             return primary
@@ -704,10 +728,16 @@ class WebRuntime:
                     or wall_vitals.vehicle_current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A
                     or wall_vitals.power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W
                 )
-                tesla_ble_control_required = wants_ble_control and (
-                    wall_charge_active
-                    or quota_resume_pending
-                )
+                complete_ble_standby = self._complete_ble_standby_active(wall_vitals)
+                if complete_ble_standby:
+                    tesla_ble_control_required = False
+                    tesla_ble_control_state = "standby"
+                    tesla_ble_control_message = "Bluetooth in standby dopo carica completa"
+                else:
+                    tesla_ble_control_required = wants_ble_control and (
+                        wall_charge_active
+                        or quota_resume_pending
+                    )
                 self._threshold_event(
                     "wall_connector_unreachable",
                     False,
@@ -748,6 +778,7 @@ class WebRuntime:
                         )
                         tesla_ble_control_state = "connected"
                         tesla_ble_control_message = "Bluetooth pronto per controllo"
+                        self._remember_ble_charge_state(car)
         else:
             # La lettura della Tesla via BLE è opzionale: se l'auto è addormentata o
             # fuori portata mostriamo comunque l'energia, senza i dati dell'auto.
@@ -784,6 +815,7 @@ class WebRuntime:
                 )
                 tesla_ble_control_state = "connected"
                 tesla_ble_control_message = "Bluetooth connesso"
+                self._remember_ble_charge_state(car)
             tesla_power_w = self._tesla_power_w(car) if car is not None else 0.0
         solar_power_w = measurement.solar_power_w
         if solar_power_w is None and measurement.source == "solaredge-web":

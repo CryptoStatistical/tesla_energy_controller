@@ -1885,6 +1885,85 @@ def test_wall_connector_active_charge_uses_ble_for_control(monkeypatch, tmp_path
     assert status["tesla_ble_control_state"] == "connected"
 
 
+def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=6000,
+        source="mock",
+    )
+    ble_calls = {"count": 0}
+    ble_states = [
+        ChargeState(
+            charging_state="Complete",
+            current_request_a=5,
+            current_request_max_a=16,
+            actual_current_a=0,
+            phases=3,
+            voltage_v=230,
+            charger_power_kw=0,
+        ),
+        ChargeState(
+            charging_state="Charging",
+            current_request_a=5,
+            current_request_max_a=16,
+            actual_current_a=5,
+            phases=3,
+            voltage_v=230,
+            charger_power_kw=3.4,
+        ),
+    ]
+
+    def get_charge_state():
+        ble_calls["count"] += 1
+        return ble_states.pop(0)
+
+    runtime.controller.vehicle.get_charge_state = get_charge_state
+    wall = {"current_a": 1.7, "power_w": 1080.0}
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=wall["current_a"],
+                phase_currents_a=(wall["current_a"], wall["current_a"], wall["current_a"]),
+                power_w=wall["power_w"],
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+
+    first = runtime.run_cycle(datetime(2026, 7, 3, 0, 43, tzinfo=ZoneInfo("Europe/Rome")))
+    second = runtime.run_cycle(datetime(2026, 7, 3, 0, 48, tzinfo=ZoneInfo("Europe/Rome")))
+    wall.update({"current_a": 5.0, "power_w": 3450.0})
+    third = runtime.run_cycle(datetime(2026, 7, 3, 0, 53, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert first["reason"] == "Tesla non in carica (Complete)"
+    assert first["target_a"] == 0
+    assert second["action"] == "wall-connector-monitor"
+    assert second["tesla_ble_control_required"] is False
+    assert second["tesla_ble_control_state"] == "standby"
+    assert second["tesla_ble_control_message"] == "Bluetooth in standby dopo carica completa"
+    assert abs(second["tesla_power_w"] - 1080) < 0.01
+    assert second["target_a"] == 0
+    assert third["tesla_ble_control_required"] is True
+    assert third["tesla_ble_control_state"] == "connected"
+    assert ble_calls["count"] == 2
+
+
 def test_wall_connector_standby_outside_window_does_not_query_tesla_ble(
     monkeypatch,
     tmp_path,
