@@ -2,14 +2,14 @@
 {% macro metric(value, unit='', decimals=0) -%}
   {% if value is none %}—{% else %}{{ (('%.' ~ decimals ~ 'f')|format(value|float)) }}{{ unit }}{% endif %}
 {%- endmacro %}
-{% block title %}Dashboard · Tesla Energy Controller{% endblock %}
+{% block title %}Dashboard · Tesla Energy Monitor{% endblock %}
 {% block content %}
   {% set alfa_mode = current.alfa_grid_reading_enabled %}
   {% set sample_seconds = hard.poll_interval_seconds %}
   <header class="topbar">
     <div>
       <p class="eyebrow">RASPBERRY LIVE</p>
-      <h1>Energy Monitor</h1>
+      <h1>Tesla Energy Monitor</h1>
       <p class="muted">Campionamento {{ sample_seconds }}s · {{ hard.mode }} · {{ user.username }} ({{ user.role }})</p>
     </div>
     <div class="topbar-actions">
