@@ -484,6 +484,13 @@ obsolete. Controlla prima e dopo l'installazione lo stato di `tesla-energy-contr
 porta `8080` e l'endpoint `/health`; se `8888` fosse gia' occupata da un altro servizio, scegliere
 una porta alternativa:
 
+Sulle versioni recenti di RPi-Monitor il template della temperatura CPU puo' mostrare `Null`; lo
+script applica il workaround sul post-process del sensore e verifica che `temperature.conf` sia
+incluso. Lo script sostituisce inoltre il grafico CPU basato sul load average con un grafico
+`CPU Usage` in percentuale e configura il template rete sull'interfaccia della route predefinita
+(ad esempio `wlan0` sui Raspberry collegati in Wi-Fi), mostrando sia i byte totali sia il traffico
+istantaneo in upload/download.
+
 ```bash
 scripts/install_rpimonitor_raspberry_pi.sh utente@raspberry-pi 8889
 ```
