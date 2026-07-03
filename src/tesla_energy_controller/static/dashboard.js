@@ -385,7 +385,12 @@
       var target = node.querySelector("strong");
       if (target) target.textContent = formatValue(data[key], unit, decimals);
       if (key === "target_a") {
-        node.classList.toggle("metric-override", Boolean(data.manual_override_active));
+        var overrideActive = Boolean(data.manual_override_active);
+        var targetActive = !overrideActive && Number(data[key] || 0) > 0;
+        var overrideLabel = node.querySelector(".target-override-label");
+        node.classList.toggle("metric-override", overrideActive);
+        node.classList.toggle("metric-target-active", targetActive);
+        if (overrideLabel) overrideLabel.hidden = !overrideActive;
       }
     });
   }

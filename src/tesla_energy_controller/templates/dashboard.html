@@ -127,7 +127,9 @@
       <article class="metric panel" data-metric="tesla_power_w" data-unit=" W"><span>Tesla</span><strong>{{ metric(status.get('tesla_power_w'), ' W') }}</strong></article>
       <article class="metric panel" data-metric="total_consumption_w" data-unit=" W"><span>Consumo Totale</span><strong>{{ metric(status.get('total_consumption_w'), ' W') }}</strong></article>
       <article class="metric panel" data-metric="monthly_peak_import_w" data-unit=" W"><span>Quota Potenza</span><strong>{{ metric(monthly_peak_import_w|default(0), ' W') }}</strong></article>
-      <article class="metric panel {% if status.get('manual_override_active') %}metric-override{% endif %}" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><strong>{{ metric(status.get('target_a'), ' A') }}</strong></article>
+      {% set target_value = status.get('target_a') %}
+      {% set target_active = target_value is not none and (target_value|float) > 0 and not status.get('manual_override_active') %}
+      <article class="metric panel {% if status.get('manual_override_active') %}metric-override{% elif target_active %}metric-target-active{% endif %}" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><em class="target-override-label" {% if not status.get('manual_override_active') %}hidden{% endif %}>override</em><strong>{{ metric(target_value, ' A') }}</strong></article>
     </section>
 
     <section class="panel chart-card" id="chartCard" data-series-url="{{ url_for('api_series') }}">

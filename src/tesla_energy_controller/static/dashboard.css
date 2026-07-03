@@ -235,8 +235,11 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .metric strong.flow-value span { display: inline; font: inherit; }
 .metric strong.flow-value .flow-import { color: #f43f5e; }
 .metric strong.flow-value .flow-export { color: #eab308; }
+.metric.metric-target-active { border-color: rgba(244, 63, 94, 0.58); box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.1) inset; }
+.metric.metric-target-active strong { color: #fb7185; }
 .metric.metric-override { border-color: rgba(139, 92, 246, 0.62); box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.12) inset; }
 .metric.metric-override strong { color: #a78bfa; }
+.target-override-label { display: block; margin-top: 6px; color: #a78bfa; font-size: 0.72rem; font-style: normal; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .m-solar { color: #eab308; }
 .m-casa { color: var(--text); }
 .vin-hl { color: #f97316; }
