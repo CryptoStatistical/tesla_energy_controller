@@ -644,6 +644,9 @@ disponibile la stessa capability Bluetooth del servizio principale. L'unità sys
 `CAP_NET_ADMIN` come il servizio web. `meter_switch=false` da Tuya disabilita il controller di
 ricarica ma lascia attivo il monitoraggio FV/casa su Smart Life.
 
+I report proprietà Tuya sono inviati con MQTT QoS 1 e `sys.ack=1`; il bridge ascolta anche
+`property/report_response`, così eventuali rifiuti del cloud finiscono nel journal del servizio.
+
 Quando l'auto non è presente e si usa `TESLA_DATA_SOURCE=vehicle`, impostare
 `TUYA_REPORT_TESLA=false`: il fallback live non tenta letture BLE. Con
 `TESLA_DATA_SOURCE=wall-connector` normalmente non serve disattivarlo: Tuya pubblica l'ultima misura

@@ -48,6 +48,10 @@ Tuya reports prefer the fresh dashboard status cache, then fall back to the
 latest SQLite measurement. This keeps Smart Life responsive on app open without
 triggering an extra live poll.
 
+Property reports are published with MQTT QoS 1 and Tuya `sys.ack=1`. The bridge
+subscribes to `property/report_response`, so delivery issues can be seen in the
+service journal instead of silently disappearing in the Tuya cloud/app path.
+
 ## Manual test
 
 From the project directory:

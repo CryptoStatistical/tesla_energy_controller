@@ -181,6 +181,10 @@ class TuyaLinkMqttClient:
     def property_report_topic(self) -> str:
         return f"tylink/{self.config.device_id}/thing/property/report"
 
+    @property
+    def property_report_response_topic(self) -> str:
+        return f"tylink/{self.config.device_id}/thing/property/report_response"
+
     def connect(self) -> None:
         auth = build_tuya_auth(self.config)
         raw = socket.create_connection((self.config.host, self.config.port), timeout=15)
@@ -225,7 +229,13 @@ class TuyaLinkMqttClient:
         self.subscribe_topics([self.property_set_topic])
 
     def subscribe_control_topics(self) -> None:
-        self.subscribe_topics([self.property_set_topic, self.property_get_topic])
+        self.subscribe_topics(
+            [
+                self.property_set_topic,
+                self.property_get_topic,
+                self.property_report_response_topic,
+            ]
+        )
 
     def subscribe_topics(self, topics: list[str]) -> None:
         sock = self._require_socket()
@@ -250,12 +260,23 @@ class TuyaLinkMqttClient:
         finally:
             sock.settimeout(previous_timeout)
 
-    def publish_json(self, topic: str, payload: dict[str, Any]) -> None:
+    def publish_json(self, topic: str, payload: dict[str, Any], *, qos: int = 0) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        self._send(_packet(0x30, _mqtt_string(topic) + body))
+        if qos == 0:
+            self._send(_packet(0x30, _mqtt_string(topic) + body))
+            return
+        if qos == 1:
+            packet_id = self._next_packet_id()
+            self._send(_packet(0x32, _mqtt_string(topic) + struct.pack("!H", packet_id) + body))
+            return
+        raise ValueError("TuyaLink supporta solo QoS 0 o 1")
 
     def report_properties(self, properties: dict[str, Any]) -> None:
-        self.publish_json(self.property_report_topic, build_property_report(properties))
+        self.publish_json(
+            self.property_report_topic,
+            build_property_report(properties, ack=True),
+            qos=1,
+        )
 
     def respond_property_set(self, msg_id: str, code: int = 0) -> None:
         self.publish_json(
@@ -282,7 +303,15 @@ class TuyaLinkMqttClient:
             topic_start = 2
             topic_end = topic_start + topic_length
             topic = body[topic_start:topic_end].decode("utf-8")
-            return MqttMessage(topic, body[topic_end:])
+            payload_start = topic_end
+            qos = (packet_type >> 1) & 0x03
+            if qos == 1:
+                packet_id = struct.unpack("!H", body[payload_start : payload_start + 2])[0]
+                payload_start += 2
+                self._send(_packet(0x40, struct.pack("!H", packet_id)))
+            elif qos > 1:
+                raise RuntimeError(f"QoS MQTT non supportato: {qos}")
+            return MqttMessage(topic, body[payload_start:])
         if message_type == 13:
             return None
         if message_type in {4, 9}:
@@ -554,6 +583,18 @@ class TuyaEnergyMeterBridge:
             self.handle_property_set(client, message)
         elif message.topic == client.property_get_topic:
             self.handle_property_get(client, message)
+        elif message.topic == client.property_report_response_topic:
+            self.handle_property_report_response(message)
+
+    def handle_property_report_response(self, message: MqttMessage) -> None:
+        try:
+            payload = json.loads(message.payload.decode("utf-8"))
+            code = int(payload.get("code", 0))
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            LOG.warning("property/report_response Tuya non valido: %s", exc)
+            return
+        if code != 0:
+            LOG.warning("tuya_property_report_response code=%s payload=%s", code, payload)
 
     @staticmethod
     def _number(value: Any) -> float | None:

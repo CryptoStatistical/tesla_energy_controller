@@ -271,6 +271,9 @@ measurement, so opening Smart Life can show recent values without forcing new So
 reads. `TUYA_REPORT_INTERVAL_SECONDS=10` keeps the app responsive while the five-minute SQLite
 sampling cadence stays unchanged.
 
+Property reports are published with MQTT QoS 1 and Tuya `sys.ack=1`; the bridge subscribes to
+`property/report_response`, so cloud-side report failures are visible in the service journal.
+
 When `TESLA_DATA_SOURCE=wall-connector`, Tesla power comes from the Wall Connector measurement and
 does not wake the car. When `TESLA_DATA_SOURCE=vehicle`, `TUYA_REPORT_TESLA=false` can be used to
 avoid live BLE fallback when the car is away.

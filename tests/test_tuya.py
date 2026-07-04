@@ -10,6 +10,7 @@ from tesla_energy_controller.tuya import (
     MqttMessage,
     TuyaEnergyMeterBridge,
     TuyaLinkConfig,
+    TuyaLinkMqttClient,
     build_property_report,
     build_property_response,
     build_tuya_auth,
@@ -55,6 +56,55 @@ def test_build_property_report_wraps_each_dp_with_value_and_time():
             "solar_power_w": {"value": 1234, "time": 123456789},
         },
     }
+
+
+def test_build_property_report_can_request_cloud_ack():
+    payload = build_property_report(
+        {"solar_power_w": 1234},
+        msg_id="abc",
+        time_ms=123456789,
+        ack=True,
+    )
+
+    assert payload["sys"] == {"ack": 1}
+
+
+def test_tuya_publish_qos1_adds_packet_identifier():
+    config = TuyaLinkConfig(
+        host="m1.tuyaeu.com",
+        port=8883,
+        device_id="device123",
+        device_secret="secret123",
+    )
+    client = TuyaLinkMqttClient(config)
+    sent = []
+    client._send = sent.append
+
+    client.publish_json("topic/test", {"ok": True}, qos=1)
+
+    assert sent[0][0] == 0x32
+    assert b"\x00\ntopic/test\x00\x01" in sent[0]
+
+
+def test_tuya_loop_strips_qos1_packet_id_and_pubacks():
+    config = TuyaLinkConfig(
+        host="m1.tuyaeu.com",
+        port=8883,
+        device_id="device123",
+        device_secret="secret123",
+    )
+    client = TuyaLinkMqttClient(config)
+    topic = client.property_get_topic.encode()
+    body = len(topic).to_bytes(2, "big") + topic + b"\x12\x34" + b'{"msgId":"get-1"}'
+    sent = []
+    client._sock = SimpleNamespace(settimeout=lambda _timeout: None)
+    client._read_packet = lambda: (0x32, body)
+    client._send = sent.append
+
+    message = client.loop_once()
+
+    assert message == MqttMessage(client.property_get_topic, b'{"msgId":"get-1"}')
+    assert sent == [b"\x40\x02\x12\x34"]
 
 
 def test_build_property_get_response_uses_same_wrapped_data_shape():
