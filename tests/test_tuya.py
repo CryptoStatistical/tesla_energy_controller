@@ -339,6 +339,35 @@ def test_tuya_prefers_fresh_dashboard_status_cache(tmp_path):
     assert properties["tesla_state"] == "idle"
 
 
+def test_tuya_status_cache_total_is_never_below_house_plus_tesla(tmp_path):
+    database_file = tmp_path / "energy.sqlite3"
+    settings = SimpleNamespace(
+        energy_source="mock",
+        energy_database_file=str(database_file),
+        tuya_average_samples=1,
+        tuya_report_interval_seconds=10,
+        tuya_report_tesla=False,
+    )
+    write_status_cache(
+        settings,
+        {
+            "updated_at": "2026-07-04T08:12:36+02:00",
+            "solar_power_w": 0,
+            "house_power_w": 1134,
+            "tesla_power_w": 0,
+            "total_consumption_w": 0,
+            "wall_connector_vehicle_connected": False,
+        },
+    )
+
+    bridge = TuyaEnergyMeterBridge(settings=settings, controller=None)
+
+    properties = bridge.properties()
+
+    assert properties["house_consumption_w"] == 1134
+    assert properties["total_consumption_w"] == 1134
+
+
 def test_tuya_sqlite_wall_connector_standby_is_idle(tmp_path):
     database_file = tmp_path / "energy.sqlite3"
     database = EnergyDatabase(str(database_file))

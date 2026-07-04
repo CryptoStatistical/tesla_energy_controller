@@ -631,16 +631,18 @@ TUYA_MQTT_HOST=m1.tuyaeu.com
 TUYA_MQTT_PORT=8883
 TUYA_DEVICE_ID=id-dispositivo
 TUYA_DEVICE_SECRET_FILE=.secrets/tuya_device_secret
-TUYA_REPORT_INTERVAL_SECONDS=20
+TUYA_REPORT_INTERVAL_SECONDS=10
 TUYA_AVERAGE_SAMPLES=3
 TUYA_REPORT_TESLA=true
 ```
 
-Il servizio usa la stessa configurazione Tesla del pannello. Se la misura Tesla arriva dal Wall
-Connector, Tuya pubblica quel valore salvato in SQLite; se arriva dal BLE, resta disponibile la
-stessa capability Bluetooth del servizio principale. L'unità systemd include quindi `CAP_NET_ADMIN`
-come il servizio web. `meter_switch=false` da Tuya disabilita il controller di ricarica ma lascia
-attivo il monitoraggio FV/casa su Smart Life.
+Il servizio usa la stessa configurazione Tesla del pannello e pubblica prima di tutto la cache
+dashboard fresca; se manca, ripiega sull'ultima misura SQLite. `TUYA_REPORT_INTERVAL_SECONDS=10`
+mantiene Smart Life piu' reattiva senza interrogare di nuovo SolarEdge/Vimar/Tesla. Se la misura
+Tesla arriva dal Wall Connector, Tuya pubblica quel valore salvato/cache; se arriva dal BLE, resta
+disponibile la stessa capability Bluetooth del servizio principale. L'unità systemd include quindi
+`CAP_NET_ADMIN` come il servizio web. `meter_switch=false` da Tuya disabilita il controller di
+ricarica ma lascia attivo il monitoraggio FV/casa su Smart Life.
 
 Quando l'auto non è presente e si usa `TESLA_DATA_SOURCE=vehicle`, impostare
 `TUYA_REPORT_TESLA=false`: il fallback live non tenta letture BLE. Con

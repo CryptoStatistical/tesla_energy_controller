@@ -15,7 +15,7 @@ TUYA_MQTT_PORT=8883
 TUYA_PRODUCT_ID=v0hvfnujisazsjrc
 TUYA_DEVICE_ID=...
 TUYA_DEVICE_SECRET=...
-TUYA_REPORT_INTERVAL_SECONDS=20
+TUYA_REPORT_INTERVAL_SECONDS=10
 TUYA_KEEPALIVE_SECONDS=60
 TUYA_AVERAGE_SAMPLES=3
 TUYA_REPORT_TESLA=true
@@ -30,9 +30,9 @@ active and amp changes are needed.
 The China endpoint is `m1.tuyacn.com`, but a China-only device will not bind
 cleanly to an EU Smart Life account.
 
-`TUYA_AVERAGE_SAMPLES` controls the moving average shown in Smart Life. With
-`TUYA_REPORT_INTERVAL_SECONDS=20` and `TUYA_AVERAGE_SAMPLES=3`, the panel shows
-about one minute of averaged watt readings.
+`TUYA_REPORT_INTERVAL_SECONDS` controls how often the bridge republishes the
+latest dashboard cache to Smart Life. `10` seconds keeps the app responsive
+without triggering extra SolarEdge/Vimar/Tesla polling.
 
 Set `TUYA_REPORT_TESLA=false` when `TESLA_DATA_SOURCE=vehicle` and the car is
 away or BLE is temporarily unavailable. This only disables the live BLE fallback;
@@ -44,8 +44,9 @@ SQLite/Wall Connector, not from waking the car.
 `meter_switch=false` disables the charge controller runtime switch, but the
 Tuya bridge stays online and keeps reporting the solar/house meter values.
 
-Tuya reports are built from the latest SQLite measurement when available. This
-keeps Smart Life responsive on app open without triggering an extra live poll.
+Tuya reports prefer the fresh dashboard status cache, then fall back to the
+latest SQLite measurement. This keeps Smart Life responsive on app open without
+triggering an extra live poll.
 
 ## Manual test
 

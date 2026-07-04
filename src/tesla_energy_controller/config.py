@@ -378,7 +378,7 @@ class Settings:
             tuya_device_id=(os.getenv("TUYA_DEVICE_ID") or "").strip() or None,
             tuya_device_secret=_secret("TUYA_DEVICE_SECRET", "TUYA_DEVICE_SECRET_FILE"),
             tuya_keepalive_seconds=_env_int("TUYA_KEEPALIVE_SECONDS", 60),
-            tuya_report_interval_seconds=_env_int("TUYA_REPORT_INTERVAL_SECONDS", 30),
+            tuya_report_interval_seconds=_env_int("TUYA_REPORT_INTERVAL_SECONDS", 10),
             tuya_average_samples=_env_int("TUYA_AVERAGE_SAMPLES", 3),
             tuya_report_tesla=_env_bool("TUYA_REPORT_TESLA", True),
             extra_grid_power_w=_env_float("EXTRA_GRID_POWER_W", 3000.0),

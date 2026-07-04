@@ -384,6 +384,7 @@ class TuyaEnergyMeterBridge:
         house_power_w = self._number(status.get("house_power_w"))
         if house_power_w is None:
             house_power_w = max(total_consumption_w - tesla_power_w, 0.0)
+        total_consumption_w = max(total_consumption_w, house_power_w + tesla_power_w)
         tesla_state = self._tuya_cached_tesla_state(status, tesla_power_w)
 
         return {
