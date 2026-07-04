@@ -421,13 +421,31 @@ class WebRuntime:
             and self.current.solar_source == "solaredge-modbus"
         ):
             return False
+        payload = self._mark_solaredge_modbus_connect_degraded(exc, cycle_time)
+        cached = dict(self.last_status or {})
+        cached.update(window_data)
+        cached.update(
+            {
+                "state": "degraded" if cached.get("updated_at") else "waiting",
+                "message": "SolarEdge Modbus non disponibile; ritento e uso ultimo campione",
+                "debug": payload,
+                "email_report": "mail non inviata: debounce Modbus SolarEdge",
+                "solar_source": self.current.solar_source,
+            }
+        )
+        self.last_status = cached
+        self._publish_status_cache()
+        return True
+
+    def _mark_solaredge_modbus_connect_degraded(
+        self,
+        exc: Exception,
+        cycle_time: datetime,
+    ) -> dict:
         now = cycle_time.astimezone()
         if self._solaredge_modbus_down_since is None:
             self._solaredge_modbus_down_since = now
         elapsed = now - self._solaredge_modbus_down_since
-        if elapsed >= SOLAREDGE_MODBUS_CONNECT_GRACE:
-            return False
-
         payload = diagnostic_payload(exc)
         self._threshold_event(
             SOLAREDGE_MODBUS_CONNECT_EVENT,
@@ -438,23 +456,11 @@ class WebRuntime:
                 "diagnostic": payload,
                 "elapsed_seconds": round(elapsed.total_seconds()),
                 "grace_seconds": round(SOLAREDGE_MODBUS_CONNECT_GRACE.total_seconds()),
+                "retry": "continuo",
             },
             mail_enabled=False,
         )
-        cached = dict(self.last_status or {})
-        cached.update(window_data)
-        cached.update(
-            {
-                "state": "degraded" if cached.get("updated_at") else "waiting",
-                "message": "SolarEdge Modbus temporaneamente non disponibile; uso ultimo campione",
-                "debug": payload,
-                "email_report": "mail non inviata: debounce Modbus SolarEdge",
-                "solar_source": self.current.solar_source,
-            }
-        )
-        self.last_status = cached
-        self._publish_status_cache()
-        return True
+        return payload
 
     def _recover_solaredge_modbus_connect(self) -> None:
         if self._solaredge_modbus_down_since is None:
@@ -731,7 +737,28 @@ class WebRuntime:
 
     def _read_snapshot(self, stamp: str, *, wants_ble_control: bool = True) -> tuple:
         # FV/casa/rete non dipendono dall'auto: leggiamoli sempre, per primi.
-        measurement = self.controller.grid.read()
+        solar_source_degraded = False
+        solar_source_error = None
+        try:
+            measurement = self.controller.grid.read()
+        except SolarEdgeAccessError as exc:
+            if not (
+                exc.phase == "modbus-connect"
+                and self.current.solar_source == "solaredge-modbus"
+                and self.current.alfa_grid_reading_enabled
+                and self.alfa_grid is not None
+            ):
+                raise
+            LOG.warning(
+                "SolarEdge Modbus non disponibile, uso temporaneamente ALFA: %s",
+                exc,
+            )
+            solar_source_error = self._mark_solaredge_modbus_connect_degraded(
+                exc,
+                datetime.fromisoformat(stamp),
+            )
+            measurement = self.alfa_grid.read()
+            solar_source_degraded = True
         appliances = self._read_appliances()
         vimar_power_w = sum(max(float(item["power_w"] or 0), 0.0) for item in appliances)
         car = None
@@ -907,6 +934,8 @@ class WebRuntime:
             "observed_at": stamp,
             "solar_source": self.current.solar_source,
             "energy_source": measurement.source,
+            "solar_source_degraded": solar_source_degraded,
+            "solar_source_error": solar_source_error,
             "solar_power_w": solar_power_w,
             "grid_power_w": measurement.total_power_w,
             "vimar_power_w": vimar_power_w,
@@ -1070,7 +1099,8 @@ class WebRuntime:
                 )
                 self._publish_status_cache()
                 return dict(self.last_status)
-            self._recover_solaredge_modbus_connect()
+            if not energy.get("solar_source_degraded"):
+                self._recover_solaredge_modbus_connect()
             if force_measurement and not measurement.fresh:
                 measurement = replace(measurement, fresh=True)
 
@@ -1233,6 +1263,15 @@ class WebRuntime:
                     # skip possono avere solar/grid/voltage opzionali a None.
                     **energy,
                 }
+                if energy.get("solar_source_degraded"):
+                    self.last_status["state"] = "degraded"
+                    self.last_status["message"] = (
+                        "SolarEdge Modbus non disponibile; controllo su ALFA"
+                    )
+                    self.last_status["debug"] = energy.get("solar_source_error")
+                    self.last_status["email_report"] = (
+                        "mail non inviata: SolarEdge Modbus in retry"
+                    )
             except Exception as exc:
                 LOG.exception("ciclo controller fallito; nessun comando inviato")
                 self.last_status = {

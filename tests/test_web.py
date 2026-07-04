@@ -1807,9 +1807,84 @@ def test_solaredge_modbus_connect_error_is_debounced(monkeypatch, tmp_path):
     assert reports == []
 
     status = runtime.run_cycle(now.replace(minute=5))
-    assert status["state"] == "error"
-    assert reports
-    assert any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
+    assert status["state"] == "degraded"
+    assert status["solar_power_w"] == 4500
+    assert reports == []
+    assert not any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
+
+
+def test_solaredge_modbus_connect_failure_falls_back_to_alfa(monkeypatch, tmp_path):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        solar_source="solaredge-modbus",
+    )
+    runtime.store.save(runtime.current)
+
+    def fail():
+        raise SolarEdgeAccessError(
+            "Connessione Modbus SolarEdge non riuscita",
+            phase="modbus-connect",
+            endpoint="tcp://192.168.2.126:1502",
+        )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=-500,
+                solar_power_w=1200,
+                import_power_w=0,
+                export_power_w=500,
+                source="alfa-modbus",
+            )
+
+    reports = []
+    runtime.controller.grid.read = fail
+    runtime.alfa_grid = AlfaMeter()
+    runtime.reporter.notify = lambda *args, **kwargs: reports.append(
+        (args, kwargs)
+    ) or EmailReportResult(True, True, "report mail inviato")
+
+    status = runtime.run_cycle(datetime(2026, 7, 4, 7, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] == "degraded"
+    assert status["message"] == "SolarEdge Modbus non disponibile; controllo su ALFA"
+    assert status["energy_source"] == "alfa-modbus"
+    assert status["solar_source"] == "solaredge-modbus"
+    assert status["solar_source_degraded"] is True
+    assert status["alfa_grid_reading_enabled"] is True
+    assert status["solar_power_w"] == 1200
+    assert status["import_power_w"] == 0
+    assert status["export_power_w"] == 500
+    assert reports == []
+    assert any(
+        event["kind"] == "solaredge_modbus_connect_degraded"
+        for event in runtime.db.latest_events()
+    )
+    assert not any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
+
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=-400,
+        solar_power_w=1300,
+        source="solaredge-modbus",
+    )
+    recovered = runtime.run_cycle(datetime(2026, 7, 4, 7, 1, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert recovered["state"] == "ok"
+    assert recovered["energy_source"] == "solaredge-modbus+alfa-modbus"
+    assert recovered["solar_source_degraded"] is False
+    assert 1200 < recovered["solar_power_w"] < 1300
+    assert any(
+        event["kind"] == "solaredge_modbus_connect_degraded_recovered"
+        for event in runtime.db.latest_events()
+    )
 
 
 def test_solaredge_web_grid_only_payload_reconstructs_solar(monkeypatch, tmp_path):

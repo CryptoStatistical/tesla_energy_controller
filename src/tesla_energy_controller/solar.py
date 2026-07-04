@@ -749,7 +749,8 @@ class SolarEdgeModbusSource:
     ) -> None:
         from pymodbus.client import ModbusTcpClient
 
-        self._client = ModbusTcpClient(host=host, port=port, timeout=5)
+        self._client_factory = lambda: ModbusTcpClient(host=host, port=port, timeout=5)
+        self._client = self._client_factory()
         self._host = host
         self._port = port
         self._unit = unit
@@ -757,7 +758,8 @@ class SolarEdgeModbusSource:
         self._model_address = meter_base + self.METER_MODEL_OFFSET
         self._expected_phases = expected_phases
         self._power_sign = power_sign
-        self._retry_delay_seconds = 0.5
+        self._retry_attempts = 3
+        self._retry_delay_seconds = 1.0
 
     @staticmethod
     def _signed(value: int) -> int:
@@ -828,13 +830,17 @@ class SolarEdgeModbusSource:
                 )
 
         last_exc: Exception | None = None
-        for attempt in range(2):
+        attempts = max(int(getattr(self, "_retry_attempts", 2) or 2), 1)
+        for attempt in range(attempts):
             try:
                 return read_once()
             except Exception as exc:
                 last_exc = exc
                 self._client.close()
-                if attempt == 0:
+                factory = getattr(self, "_client_factory", None)
+                if factory is not None:
+                    self._client = factory()
+                if attempt < attempts - 1:
                     delay = float(getattr(self, "_retry_delay_seconds", 0.0) or 0.0)
                     if delay > 0:
                         time.sleep(delay)
