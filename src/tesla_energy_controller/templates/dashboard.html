@@ -129,7 +129,7 @@
       <article class="metric panel" data-metric="monthly_peak_import_w" data-unit=" W"><span>Quota Potenza</span><strong>{{ metric(monthly_peak_import_w|default(0), ' W') }}</strong></article>
       {% set target_value = status.get('target_a') %}
       {% set target_active = target_value is not none and (target_value|float) > 0 and not status.get('manual_override_active') %}
-      <article class="metric panel {% if status.get('manual_override_active') %}metric-override{% elif target_active %}metric-target-active{% endif %}" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><em class="target-override-label" {% if not status.get('manual_override_active') %}hidden{% endif %}>override</em><strong>{{ metric(target_value, ' A') }}</strong></article>
+      <article class="metric panel {% if status.get('manual_override_active') %}metric-override{% elif target_active %}metric-target-active{% endif %}" data-metric="target_a" data-unit=" A"><span>Target Tesla</span><em class="target-override-label" {% if not status.get('manual_override_active') %}hidden{% endif %}>manual mode</em><strong>{{ metric(target_value, ' A') }}</strong></article>
     </section>
 
     <section class="panel chart-card" id="chartCard" data-series-url="{{ url_for('api_series') }}">
@@ -528,7 +528,7 @@
               <input id="extra_grid_power_a" name="extra_grid_power_a" type="number" min="0" step="0.1" value="{{ '%.1f'|format(extra_amps) }}" required>
               <span class="field-note" id="extraGridKw" data-voltage="{{ hard.nominal_phase_voltage_v }}" data-phases="{{ current.expected_phases }}">≈ {{ '%.2f'|format(current.extra_grid_power_w / 1000) }} kW</span>
             </div>
-            <div><label for="manual_override_amps">Override manuale da (A)</label><input id="manual_override_amps" name="manual_override_amps" type="number" min="{{ hard.min_charge_amps }}" max="{{ hard.max_charge_amps }}" value="{{ current.manual_override_amps }}" required></div>
+            <div><label for="manual_override_amps">Manual mode da (A)</label><input id="manual_override_amps" name="manual_override_amps" type="number" min="{{ hard.min_charge_amps }}" max="{{ hard.max_charge_amps }}" value="{{ current.manual_override_amps }}" required></div>
             <div><label for="min_charge_amps">Corrente minima (A)</label><input id="min_charge_amps" name="min_charge_amps" type="number" min="1" max="{{ hard.max_charge_amps }}" value="{{ current.min_charge_amps }}" required></div>
           </div></div>
 
