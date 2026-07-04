@@ -3041,6 +3041,72 @@ def test_solaredge_modbus_uses_alfa_at_night_without_waking_inverter(
     assert status["solar_power_w"] == 1200
 
 
+def test_solaredge_modbus_sleeps_at_night_even_with_all_day_fixed_window(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    monkeypatch.setenv("ALFA_MODBUS_HOST", "192.168.1.169")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        solar_source="solaredge-modbus",
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+    )
+    runtime.store.save(runtime.current)
+    runtime._apply_runtime_settings(runtime.current)
+    runtime.controller.vehicle.state = replace(
+        runtime.controller.vehicle.state,
+        charging_state="Complete",
+        actual_current_a=0,
+        charger_power_kw=0,
+    )
+    monkeypatch.setattr(
+        "tesla_energy_controller.web.read_energy_points_from_settings",
+        lambda _settings: [
+            VimarEnergyPoint(
+                idsf=1,
+                name="Casa",
+                sftype="",
+                sstype="",
+                power_w=700,
+                production_w=None,
+                exchange_w=None,
+            )
+        ],
+    )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=700,
+                solar_power_w=0,
+                import_power_w=700,
+                export_power_w=0,
+                source="alfa-modbus",
+            )
+
+    calls = []
+    runtime.alfa_grid = AlfaMeter()
+    runtime.controller.grid.read = lambda: calls.append("solaredge") or GridMeasurement(
+        total_power_w=0,
+        solar_power_w=9999,
+        source="solaredge-modbus",
+    )
+
+    status = runtime.run_cycle(datetime(2026, 7, 4, 23, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["window_active"] is True
+    assert calls == []
+    assert status["energy_source"] == "alfa-modbus"
+    assert status["solar_source_standby"] is True
+    assert status["solar_power_w"] == 0
+
+
 def test_dashboard_flow_metric_uses_net_grid_balance(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]

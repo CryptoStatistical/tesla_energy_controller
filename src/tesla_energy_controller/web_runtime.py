@@ -388,6 +388,23 @@ class WebRuntime:
     def window(self, now: datetime | None = None) -> OperatingWindow:
         return operating_window(self.current, self.hard, now)
 
+    def solaredge_modbus_window(self, now: datetime | None = None) -> OperatingWindow:
+        solar_runtime = replace(self.current, schedule_mode="sun")
+        return operating_window(solar_runtime, self.hard, now)
+
+    def solaredge_modbus_awake(self, now: datetime, charging_window: OperatingWindow) -> bool:
+        if not (
+            self.current.solar_source == "solaredge-modbus"
+            and self.current.alfa_grid_reading_enabled
+            and self.alfa_grid is not None
+        ):
+            return charging_window.active
+        try:
+            solar_window = self.solaredge_modbus_window(now)
+        except RuntimeSettingsError:
+            return charging_window.active
+        return charging_window.active and solar_window.active
+
     def authenticate(self, username: str, password: str) -> dict | None:
         return self.db.authenticate(username, password)
 
@@ -797,6 +814,7 @@ class WebRuntime:
         *,
         wants_ble_control: bool = True,
         solar_window_active: bool = True,
+        solaredge_modbus_awake: bool | None = None,
     ) -> tuple:
         # FV/casa/rete non dipendono dall'auto: leggiamoli sempre, per primi.
         solar_source_degraded = False
@@ -804,7 +822,7 @@ class WebRuntime:
         solar_source_standby = False
         if (
             self.current.solar_source == "solaredge-modbus"
-            and not solar_window_active
+            and not (solar_window_active and (solaredge_modbus_awake is not False))
             and self.current.alfa_grid_reading_enabled
             and self.alfa_grid is not None
         ):
@@ -1157,12 +1175,14 @@ class WebRuntime:
                 "window_label": window.label,
                 "window_mode": window.mode,
             }
+            solaredge_modbus_awake = self.solaredge_modbus_awake(cycle_time, window)
             try:
                 car, measurement, energy, appliances = self._read_snapshot(
                     stamp,
                     wants_ble_control=self.current.enabled
                     and (window.active or self.hard.tesla_data_source == "wall-connector"),
                     solar_window_active=window.active,
+                    solaredge_modbus_awake=solaredge_modbus_awake,
                 )
             except Exception as exc:
                 if self._defer_solaredge_modbus_connect_error(exc, cycle_time, window_data):
