@@ -83,13 +83,14 @@ Gli indirizzi di rete non devono stare nel codice. Configurarli nel `.env` local
 | Tuya MQTT | `TUYA_MQTT_HOST`, `TUYA_MQTT_PORT` |
 | Pannello web locale | `WEB_HOST`, `WEB_PORT` |
 
-`ENERGY_SOURCE=solaredge-modbus` è il default operativo letto all'avvio. Nel pannello admin, in
-**Impostazioni → Ricarica → Fotovoltaico**, si può comunque scegliere a runtime la sorgente FV:
-`SolarEdge Modbus TCP`, `SolarEdge web` o le sorgenti già configurate. Quando è selezionato
-`SolarEdge Modbus TCP`, il servizio legge direttamente Modbus e non apre il portale SolarEdge web
-finché Modbus è disponibile. Se la connessione Modbus fallisce e le credenziali web SolarEdge sono
-configurate, usa temporaneamente `SolarEdge web` per la produzione FV e mantiene ALFA come contatore
-autorevole per import/export.
+`ENERGY_SOURCE=solaredge-web` è il default operativo consigliato: la produzione FV primaria arriva
+dal portale SolarEdge web/cloud. Nel pannello admin, in **Impostazioni → Ricarica → Fotovoltaico**,
+si può comunque scegliere a runtime la sorgente FV: `SolarEdge web/cloud`, `SolarEdge Modbus TCP`
+o le sorgenti già configurate. Modbus TCP resta opzionale/diagnostico: va selezionato solo quando
+si vuole usare esplicitamente la lettura locale dell'inverter.
+Se il connettore web/cloud fallisce, dashboard, log e report mail lo marcano subito come
+malfunzionamento del connettore SolarEdge, perché SolarEdge potrebbe aver modificato login o
+endpoint e potrebbe servire aggiornare il codice del connettore.
 In modalità normale con SolarEdge web/cloud più ALFA, `ALFA_MODBUS_HOST` viene usato come misura
 separata del contatore quando nel pannello è attiva **Attiva Lettura rete da ALFA Sinapsi**.
 
@@ -113,12 +114,13 @@ chiave BLE Tesla.
 
 ## Configurazione SolarEdge
 
-### Modbus TCP (raccomandato)
+### Modbus TCP (opzionale)
 
 1. Dalla messa in servizio/SetApp abilitare `Modbus TCP` sull'inverter.
 2. Riservare l'IP dell'inverter nel router.
-3. Impostare in `.env` host, porta e unit ID Modbus. `ENERGY_SOURCE=solaredge-modbus`
-   è il default consigliato; il portale web SolarEdge resta un fallback selezionabile dal pannello admin.
+3. Impostare in `.env` host, porta e unit ID Modbus e selezionare
+   `ENERGY_SOURCE=solaredge-modbus` o `SolarEdge Modbus TCP` dal pannello admin solo se si vuole
+   usare questa sorgente locale opzionale.
 4. Lasciare `MODE=dry-run` ed eseguire `tesla-energy-controller doctor` mentre l'auto carica.
 5. Confrontare il segno e i watt del log con mySolarEdge. Se il verso è opposto, impostare
    `SOLAREDGE_GRID_POWER_SIGN=-1`.
@@ -135,10 +137,10 @@ SOLAREDGE_METER_BASE=40121
 ```
 
 Secondo la nota tecnica SolarEdge SunSpec, il server Modbus TCP supporta una sola sessione e ha
-idle TCP di 2 minuti. Per questo `SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS` è un refresh/keepalive
-leggero e deve restare sotto i 2 minuti: il servizio valida 10-110 secondi e usa 30 secondi come
-valore consigliato. Questo non cambia il campionamento storico: `POLL_INTERVAL_SECONDS=300` resta
-la frequenza di salvataggio SQLite e decisione controller.
+idle TCP di 2 minuti. Per questo, quando Modbus è selezionato, `SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS`
+è un refresh/keepalive leggero e deve restare sotto i 2 minuti: il servizio valida 10-110 secondi e
+usa 30 secondi come valore consigliato. Questo non cambia il campionamento storico:
+`POLL_INTERVAL_SECONDS=300` resta la frequenza di salvataggio SQLite e decisione controller.
 
 Con **ALFA lettura rete** attivo, ALFA è il contatore autorevole per import/export: SolarEdge Modbus
 legge solo il modello inverter FV e non interroga il meter SolarEdge. Questo evita una seconda
@@ -156,8 +158,9 @@ Note operative:
 - se la porta resta chiusa dopo riavvii/standby, riabilitare Modbus TCP da SetApp o aggiornare il firmware.
 
 Il modello inverter SunSpec `101-104` fornisce la produzione FV istantanea. Il modello meter
-`201-204`, se presente, aggiunge import/export; se non è disponibile, la sorgente Modbus resta
-valida per il FV e non fa fallback al portale web.
+`201-204`, se presente, aggiunge import/export; con ALFA attivo la rete resta comunque letta da
+ALFA. Se la sorgente scelta è Modbus e la connessione locale fallisce durante la finestra solare,
+il servizio prova il fallback web/cloud se le credenziali SolarEdge sono configurate.
 
 Se l'inverter è dietro un MikroTik/AP con NAT o una sottorete separata, il deploy installa anche
 `tesla-energy-controller-network.service`: un bootstrap di rete Raspberry che viene eseguito al
@@ -248,8 +251,9 @@ import/export ALFA coincidano con i valori dell'interfaccia ALFA/contatore.
 
 ### Portale web con username/password
 
-Questa modalità usa la sessione privata del portale Monitoring e non richiede una API key.
-È necessariamente più fragile di un'API pubblica: SolarEdge può modificare login o endpoint.
+Questa è la modalità primaria consigliata. Usa la sessione privata del portale Monitoring e non
+richiede una API key. È più robusta del Modbus locale nella rete installata, ma resta
+necessariamente più fragile di un'API pubblica: SolarEdge può modificare login o endpoint.
 
 Salvare le credenziali senza scriverle nella cronologia del terminale:
 
@@ -264,6 +268,11 @@ riusa il `refresh_token` con un refresh leggero invece di rifare il login comple
 completo resta come ripiego (primo avvio o refresh scaduto, es. 401/403). Se l'account
 richiede MFA, il login completamente automatico viene fermato in sicurezza e va aggiunto un
 onboarding interattivo per quel secondo fattore.
+
+Se questa sorgente fallisce, il servizio mostra subito in dashboard
+`SolarEdge web/cloud non disponibile: verificare il connettore`, registra l'evento
+`solaredge_web_connector_failure` e inserisce nel contesto diagnostico `action_required`: in quel
+caso controllare credenziali/sessione e valutare un aggiornamento del connettore web.
 
 Per non sovraccaricare il portale (integrazione non ufficiale), la sorgente web esegue al massimo
 **una lettura ogni `CLOUD_POLL_INTERVAL_SECONDS`** (default 300s): le chiamate più frequenti — ad

@@ -36,6 +36,14 @@ SERIES_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 4
 ROLLING_WEIGHT_TAU_SECONDS = SERIES_BUCKET_SECONDS / 3
 SOLAREDGE_MODBUS_CONNECT_GRACE = timedelta(minutes=5)
 SOLAREDGE_MODBUS_CONNECT_EVENT = "solaredge_modbus_connect_degraded"
+SOLAREDGE_PRIMARY_CONNECTOR_EVENT = "solaredge_web_connector_failure"
+SOLAREDGE_PRIMARY_CONNECTOR_MESSAGE = (
+    "SolarEdge web/cloud non disponibile: possibile aggiornamento connettore"
+)
+SOLAREDGE_PRIMARY_CONNECTOR_ACTION = (
+    "Verificare il connettore SolarEdge web/cloud: se SolarEdge ha modificato "
+    "login o endpoint, serve aggiornare il connettore."
+)
 WALL_CONNECTOR_CHARGE_MIN_CURRENT_A = 1.0
 WALL_CONNECTOR_CHARGE_MIN_POWER_W = 500.0
 TESLA_COMPLETE_BLE_RESUME_CURRENT_A = 3.0
@@ -512,6 +520,23 @@ class WebRuntime:
             },
             mail_enabled=False,
         )
+
+    def _primary_solaredge_connector_error(self, exc: Exception) -> bool:
+        return isinstance(exc, SolarEdgeAccessError) and self.current.solar_source in {
+            "solaredge-web",
+            "solaredge-cloud",
+        }
+
+    def _error_context(self, component: str, exc: Exception) -> dict:
+        context = {
+            "component": component,
+            "solar_source": self.current.solar_source,
+            "control_mode": self.hard.control_mode,
+        }
+        if self._primary_solaredge_connector_error(exc):
+            context["primary_solar_connector"] = True
+            context["action_required"] = SOLAREDGE_PRIMARY_CONNECTOR_ACTION
+        return context
 
     @staticmethod
     def _tesla_power_w(car) -> float:
@@ -1189,23 +1214,35 @@ class WebRuntime:
                     return dict(self.last_status)
                 LOG.exception("monitoraggio energia fallito")
                 self.last_status = {**self._error(exc), **window_data}
+                if self._primary_solaredge_connector_error(exc):
+                    self.last_status["message"] = (
+                        "SolarEdge web/cloud non disponibile: verificare il connettore"
+                    )
+                    self.last_status["connector_update_required"] = True
+                    debug = dict(self.last_status.get("debug") or {})
+                    hints = list(debug.get("hints") or [])
+                    if SOLAREDGE_PRIMARY_CONNECTOR_ACTION not in hints:
+                        hints.append(SOLAREDGE_PRIMARY_CONNECTOR_ACTION)
+                    debug["hints"] = hints
+                    self.last_status["debug"] = debug
+                    self._threshold_event(
+                        SOLAREDGE_PRIMARY_CONNECTOR_EVENT,
+                        True,
+                        SOLAREDGE_PRIMARY_CONNECTOR_MESSAGE,
+                        "error",
+                        self._error_context("web-monitor", exc),
+                        mail_enabled=False,
+                    )
                 self.refresh_mail_recipients()
+                context = self._error_context("web-monitor", exc)
                 mail_result = self.reporter.notify(
                     exc,
-                    context={
-                        "component": "web-monitor",
-                        "solar_source": self.current.solar_source,
-                        "control_mode": self.hard.control_mode,
-                    },
+                    context=context,
                 )
                 self.last_status["email_report"] = mail_result.message
                 self._record_error(
                     exc,
-                    context={
-                        "component": "web-monitor",
-                        "solar_source": self.current.solar_source,
-                        "control_mode": self.hard.control_mode,
-                    },
+                    context=context,
                     email_report=mail_result.message,
                 )
                 self._publish_status_cache()
@@ -1214,6 +1251,17 @@ class WebRuntime:
                 "solar_source_standby"
             ):
                 self._recover_solaredge_modbus_connect()
+            if str(energy.get("energy_source") or "").startswith(
+                ("solaredge-web", "solaredge-cloud")
+            ):
+                self._threshold_event(
+                    SOLAREDGE_PRIMARY_CONNECTOR_EVENT,
+                    False,
+                    SOLAREDGE_PRIMARY_CONNECTOR_MESSAGE,
+                    "info",
+                    {"component": "solaredge", "source": energy.get("energy_source")},
+                    mail_enabled=False,
+                )
             if force_measurement and not measurement.fresh:
                 measurement = replace(measurement, fresh=True)
 
@@ -1405,22 +1453,15 @@ class WebRuntime:
                     **energy,
                 }
                 self.refresh_mail_recipients()
+                context = self._error_context("web-controller", exc)
                 mail_result = self.reporter.notify(
                     exc,
-                    context={
-                        "component": "web-controller",
-                        "solar_source": self.current.solar_source,
-                        "control_mode": self.hard.control_mode,
-                    },
+                    context=context,
                 )
                 self.last_status["email_report"] = mail_result.message
                 self._record_error(
                     exc,
-                    context={
-                        "component": "web-controller",
-                        "solar_source": self.current.solar_source,
-                        "control_mode": self.hard.control_mode,
-                    },
+                    context=context,
                     email_report=mail_result.message,
                 )
             self._annotate_manual_override_status(self.last_status)

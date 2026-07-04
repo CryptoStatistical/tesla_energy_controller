@@ -17,7 +17,7 @@ smart-meter driver.
 
 Tesla Energy Controller is a Python service that reads:
 
-- photovoltaic production, usually from SolarEdge Modbus TCP;
+- photovoltaic production, usually from SolarEdge web/cloud;
 - home consumption, optionally from Vimar loads;
 - grid import/export, preferably from ALFA by Sinapsi on an Enel meter;
 - Tesla charging power, either from Tesla BLE or from a local Tesla Wall Connector Gen 3.
@@ -90,15 +90,25 @@ remaining quota headroom instead. `MIN_CHARGE_AMPS` is therefore a normal prefer
 absolute one in this branch: current can go below it, or charging can be stopped and later restarted,
 to stay inside the configured quota.
 
-## SolarEdge Modbus TCP
+## SolarEdge Photovoltaic Sources
 
-`ENERGY_SOURCE=solaredge-modbus` is the preferred local PV source. The official SolarEdge SunSpec
-technical note documents one Modbus TCP session and a two-minute TCP idle time. For that reason,
-`SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS` is treated as a light refresh/keepalive interval, validated
-between 10 and 110 seconds. The recommended value is 30 seconds.
+`ENERGY_SOURCE=solaredge-web` is the recommended primary PV source. It uses the SolarEdge
+web/cloud monitoring connector and keeps Modbus TCP optional for local diagnostics or explicit
+testing.
+
+If the primary web/cloud connector fails, the dashboard, logs, and email diagnostics mark it
+explicitly as a SolarEdge connector failure. That matters because SolarEdge may have changed login
+or endpoint behavior, and the web connector may need an update.
+
+`ENERGY_SOURCE=solaredge-modbus` remains available as an optional local source. The official
+SolarEdge SunSpec technical note documents one Modbus TCP session and a two-minute TCP idle time.
+For that reason, when Modbus is selected, `SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS` is treated as a
+light refresh/keepalive interval, validated between 10 and 110 seconds. The recommended value is
+30 seconds.
 
 This is separate from `POLL_INTERVAL_SECONDS=300`: historical SQLite samples and control decisions
-remain at the five-minute cadence, while the Modbus session is kept alive in memory.
+remain at the five-minute cadence, while the optional Modbus session is kept alive in memory only
+when that source is selected.
 
 When ALFA grid reading is enabled, ALFA is authoritative for import/export. SolarEdge Modbus is then
 used only for the inverter PV model, and the SolarEdge meter model is skipped to reduce pressure on

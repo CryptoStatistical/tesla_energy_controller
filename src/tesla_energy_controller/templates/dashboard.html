@@ -492,8 +492,8 @@
             <div>
               <label for="solar_source">Fotovoltaico</label>
               <select id="solar_source" name="solar_source">
-                <option value="solaredge-web" {% if current.solar_source == 'solaredge-web' %}selected{% endif %}>SolarEdge web</option>
-                <option value="solaredge-modbus" {% if current.solar_source == 'solaredge-modbus' %}selected{% endif %}>SolarEdge Modbus TCP</option>
+                <option value="solaredge-web" {% if current.solar_source == 'solaredge-web' %}selected{% endif %}>SolarEdge web/cloud (primario)</option>
+                <option value="solaredge-modbus" {% if current.solar_source == 'solaredge-modbus' %}selected{% endif %}>SolarEdge Modbus TCP (opzionale)</option>
                 {% if current.solar_source == 'solaredge-cloud' or hard.energy_source == 'solaredge-cloud' %}
                   <option value="solaredge-cloud" {% if current.solar_source == 'solaredge-cloud' %}selected{% endif %}>SolarEdge cloud API</option>
                 {% endif %}
@@ -504,7 +504,7 @@
                   <option value="mock" {% if current.solar_source == 'mock' %}selected{% endif %}>Mock locale</option>
                 {% endif %}
               </select>
-              <span class="field-note">Modbus: {{ hard.solaredge_modbus_host or 'host non configurato' }}:{{ hard.solaredge_modbus_port }} · keepalive {{ hard.solaredge_modbus_poll_interval_seconds }}s</span>
+              <span class="field-note">Primario consigliato: web/cloud SolarEdge. Modbus: {{ hard.solaredge_modbus_host or 'host non configurato' }}:{{ hard.solaredge_modbus_port }} · opzionale · keepalive {{ hard.solaredge_modbus_poll_interval_seconds }}s solo in finestra solare.</span>
             </div>
             {% if alfa_mode %}
             <div>

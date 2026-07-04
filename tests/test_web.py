@@ -1725,6 +1725,53 @@ def test_scheduler_error_exposes_debug_without_mail(monkeypatch, tmp_path):
     assert status["email_report"].startswith("config WordPress mail incompleta")
 
 
+def test_solaredge_web_failure_marks_connector_update(monkeypatch, tmp_path):
+    monkeypatch.setenv("SOLAREDGE_USERNAME", "demo@example.com")
+    monkeypatch.setenv("SOLAREDGE_PASSWORD", "password")
+    monkeypatch.setenv("SOLAREDGE_SITE_ID", "4508922")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        solar_source="solaredge-web",
+    )
+    runtime.store.save(runtime.current)
+
+    def fail():
+        raise SolarEdgeAccessError(
+            "Lettura power-flow SolarEdge non riuscita",
+            phase="power-flow",
+            endpoint="https://monitoring.solaredge.com/services/dashboard/power-flow/v2/sites/1",
+            response_excerpt="layout inatteso",
+            hints=("Verificare Internet e disponibilità di monitoring.solaredge.com.",),
+        )
+
+    reports = []
+    runtime.controller.grid.read = fail
+    runtime.reporter.notify = lambda *args, **kwargs: reports.append(
+        kwargs.get("context")
+    ) or EmailReportResult(True, True, "report mail inviato")
+
+    status = runtime.run_cycle(datetime(2026, 7, 4, 12, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] == "error"
+    assert status["message"] == "SolarEdge web/cloud non disponibile: verificare il connettore"
+    assert status["connector_update_required"] is True
+    assert any("aggiornare il connettore" in hint for hint in status["debug"]["hints"])
+    assert reports[0]["primary_solar_connector"] is True
+    assert "aggiornare il connettore" in reports[0]["action_required"]
+    events = runtime.db.latest_events(20)
+    connector_event = next(
+        event for event in events if event["kind"] == "solaredge_web_connector_failure"
+    )
+    details = json.loads(connector_event["details_json"])
+    assert details["primary_solar_connector"] is True
+    assert "aggiornare il connettore" in details["action_required"]
+
+
 def test_vimar_timeout_keeps_energy_monitoring_without_error_mail(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
