@@ -86,7 +86,10 @@ Gli indirizzi di rete non devono stare nel codice. Configurarli nel `.env` local
 `ENERGY_SOURCE=solaredge-modbus` è il default operativo letto all'avvio. Nel pannello admin, in
 **Impostazioni → Ricarica → Fotovoltaico**, si può comunque scegliere a runtime la sorgente FV:
 `SolarEdge Modbus TCP`, `SolarEdge web` o le sorgenti già configurate. Quando è selezionato
-`SolarEdge Modbus TCP`, il servizio legge direttamente Modbus e non apre il portale SolarEdge web.
+`SolarEdge Modbus TCP`, il servizio legge direttamente Modbus e non apre il portale SolarEdge web
+finché Modbus è disponibile. Se la connessione Modbus fallisce e le credenziali web SolarEdge sono
+configurate, usa temporaneamente `SolarEdge web` per la produzione FV e mantiene ALFA come contatore
+autorevole per import/export.
 In modalità normale con SolarEdge web/cloud più ALFA, `ALFA_MODBUS_HOST` viene usato come misura
 separata del contatore quando nel pannello è attiva **Attiva Lettura rete da ALFA Sinapsi**.
 
@@ -140,8 +143,10 @@ la frequenza di salvataggio SQLite e decisione controller.
 Con **ALFA lettura rete** attivo, ALFA è il contatore autorevole per import/export: SolarEdge Modbus
 legge solo il modello inverter FV e non interroga il meter SolarEdge. Questo evita una seconda
 lettura inutile e aiuta a mantenere stabile la singola sessione Modbus. Fuori dalla finestra solare,
-se ALFA è disponibile, il servizio non interroga SolarEdge Modbus: considera il FV a zero e continua
-il monitoraggio rete/casa da ALFA, evitando polling notturno mentre l'inverter può essere in standby.
+se ALFA è disponibile, il servizio non interroga SolarEdge Modbus e continua il monitoraggio rete/casa
+da ALFA, evitando polling notturno mentre l'inverter può essere in standby. Se ALFA espone anche una
+misura FV coerente, viene usata; in ogni caso la dashboard normalizza i flussi per non mostrare
+`solare=0` con export positivo.
 
 Note operative:
 

@@ -293,6 +293,7 @@ class WebRuntime:
         self._monthly_peak_cache: tuple[str, float] | None = None
         self._rolling_samples: list[tuple[datetime, dict, list[dict]]] = []
         self._solaredge_modbus_down_since: datetime | None = None
+        self._solaredge_web_fallback = None
         self._last_appliances: list[dict] = []
         self._vimar_retry_after: datetime | None = None
         self._tesla_complete_ble_standby = False
@@ -750,6 +751,46 @@ class WebRuntime:
             source=f"{primary.source}+alfa-modbus",
         )
 
+    def _solaredge_web_fallback_measurement(self):
+        if not (
+            self.hard.solaredge_username
+            and self.hard.solaredge_password
+            and self.hard.solaredge_site_id is not None
+        ):
+            return None
+        if self._solaredge_web_fallback is None:
+            self._solaredge_web_fallback = build_grid_source(
+                self.hard,
+                "solaredge-web",
+                expected_phases=self.current.expected_phases,
+            )
+        try:
+            measurement = self._solaredge_web_fallback.read()
+        except Exception as exc:
+            LOG.warning("Fallback SolarEdge web non disponibile: %s", exc)
+            self._threshold_event(
+                "solaredge_web_fallback_unreachable",
+                True,
+                "Fallback SolarEdge web non raggiungibile",
+                "warning",
+                {
+                    "component": "solaredge",
+                    "source": "solaredge-web",
+                    "message": str(exc),
+                },
+                mail_enabled=False,
+            )
+            return None
+        self._threshold_event(
+            "solaredge_web_fallback_unreachable",
+            False,
+            "Fallback SolarEdge web non raggiungibile",
+            "info",
+            {"component": "solaredge", "source": "solaredge-web"},
+            mail_enabled=False,
+        )
+        return measurement
+
     def _read_snapshot(
         self,
         stamp: str,
@@ -767,10 +808,7 @@ class WebRuntime:
             and self.current.alfa_grid_reading_enabled
             and self.alfa_grid is not None
         ):
-            measurement = replace(
-                self.alfa_grid.read(),
-                solar_power_w=0.0,
-            )
+            measurement = self.alfa_grid.read()
             solar_source_standby = True
         else:
             try:
@@ -785,7 +823,7 @@ class WebRuntime:
                     raise
                 if self._solaredge_modbus_down_since is None:
                     LOG.warning(
-                        "SolarEdge Modbus non disponibile, uso temporaneamente ALFA: %s",
+                        "SolarEdge Modbus non disponibile, uso fallback FV/rete: %s",
                         exc,
                     )
                 else:
@@ -797,7 +835,9 @@ class WebRuntime:
                     exc,
                     datetime.fromisoformat(stamp),
                 )
-                measurement = self.alfa_grid.read()
+                measurement = self._solaredge_web_fallback_measurement()
+                if measurement is None:
+                    measurement = self.alfa_grid.read()
                 solar_source_degraded = True
         appliances = self._read_appliances()
         vimar_power_w = sum(max(float(item["power_w"] or 0), 0.0) for item in appliances)
@@ -969,6 +1009,15 @@ class WebRuntime:
             tesla_power_w=tesla_power_w,
             import_power_w=measurement.import_power_w if use_alfa_grid else None,
             export_power_w=measurement.export_power_w if use_alfa_grid else None,
+        )
+        solar_power_w = breakdown.solar_power_w
+        measurement = replace(
+            measurement,
+            solar_power_w=solar_power_w,
+            total_power_w=breakdown.import_power_w - breakdown.export_power_w,
+            import_power_w=breakdown.import_power_w,
+            export_power_w=breakdown.export_power_w,
+            total_consumption_w=breakdown.total_consumption_w,
         )
         energy = {
             "observed_at": stamp,
@@ -1184,6 +1233,7 @@ class WebRuntime:
                 )
                 energy.update(
                     {
+                        "solar_power_w": breakdown.solar_power_w,
                         "appliances_power_w": breakdown.appliances_power_w,
                         "device_power_w": breakdown.device_power_w,
                         "house_power_w": breakdown.house_power_w,
@@ -1309,9 +1359,19 @@ class WebRuntime:
                 }
                 if energy.get("solar_source_degraded"):
                     self.last_status["state"] = "degraded"
-                    self.last_status["message"] = (
-                        "SolarEdge Modbus non disponibile; controllo su ALFA"
-                    )
+                    if str(energy.get("energy_source") or "").startswith("solaredge-web"):
+                        suffix = (
+                            " e rete da ALFA"
+                            if energy.get("alfa_grid_reading_enabled")
+                            else ""
+                        )
+                        self.last_status["message"] = (
+                            f"SolarEdge Modbus non disponibile; FV da web{suffix}"
+                        )
+                    else:
+                        self.last_status["message"] = (
+                            "SolarEdge Modbus non disponibile; controllo su ALFA"
+                        )
                     self.last_status["debug"] = energy.get("solar_source_error")
                     self.last_status["email_report"] = (
                         "mail non inviata: SolarEdge Modbus in retry"

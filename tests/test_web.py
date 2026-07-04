@@ -1813,7 +1813,91 @@ def test_solaredge_modbus_connect_error_is_debounced(monkeypatch, tmp_path):
     assert not any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
 
 
-def test_solaredge_modbus_connect_failure_falls_back_to_alfa(monkeypatch, tmp_path):
+def test_solaredge_modbus_connect_failure_uses_web_before_alfa(monkeypatch, tmp_path):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    monkeypatch.setenv("SOLAREDGE_USERNAME", "demo@example.com")
+    monkeypatch.setenv("SOLAREDGE_PASSWORD", "password")
+    monkeypatch.setenv("SOLAREDGE_SITE_ID", "4508922")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        solar_source="solaredge-modbus",
+    )
+    runtime.store.save(runtime.current)
+    monkeypatch.setattr(
+        "tesla_energy_controller.web.read_energy_points_from_settings",
+        lambda _settings: [
+            VimarEnergyPoint(
+                idsf=1,
+                name="Casa",
+                sftype="",
+                sstype="",
+                power_w=700,
+                production_w=None,
+                exchange_w=None,
+            )
+        ],
+    )
+
+    def fail():
+        raise SolarEdgeAccessError(
+            "Connessione Modbus SolarEdge non riuscita",
+            phase="modbus-connect",
+            endpoint="tcp://192.168.2.126:1502",
+        )
+
+    class WebFallback:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=-3900,
+                solar_power_w=4500,
+                source="solaredge-web",
+            )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=-500,
+                solar_power_w=0,
+                import_power_w=0,
+                export_power_w=500,
+                source="alfa-modbus",
+            )
+
+    runtime.controller.grid.read = fail
+    runtime.controller.vehicle.state = replace(
+        runtime.controller.vehicle.state,
+        charging_state="Complete",
+        actual_current_a=0,
+        charger_power_kw=0,
+    )
+    runtime._solaredge_web_fallback = WebFallback()
+    runtime.alfa_grid = AlfaMeter()
+
+    status = runtime.run_cycle(datetime(2026, 7, 4, 7, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] == "degraded"
+    assert status["message"] == "SolarEdge Modbus non disponibile; FV da web e rete da ALFA"
+    assert status["energy_source"] == "solaredge-web+alfa-modbus"
+    assert status["solar_source"] == "solaredge-modbus"
+    assert status["solar_source_degraded"] is True
+    assert status["alfa_grid_reading_enabled"] is True
+    assert status["solar_power_w"] == 4500
+    assert status["import_power_w"] == 0
+    assert status["export_power_w"] == 500
+    assert not any(event["kind"] == "error_solaredge" for event in runtime.db.latest_events())
+
+
+def test_solaredge_modbus_connect_failure_falls_back_to_alfa_without_web(
+    monkeypatch, tmp_path
+):
     monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
@@ -1826,6 +1910,20 @@ def test_solaredge_modbus_connect_failure_falls_back_to_alfa(monkeypatch, tmp_pa
         solar_source="solaredge-modbus",
     )
     runtime.store.save(runtime.current)
+    monkeypatch.setattr(
+        "tesla_energy_controller.web.read_energy_points_from_settings",
+        lambda _settings: [
+            VimarEnergyPoint(
+                idsf=1,
+                name="Casa",
+                sftype="",
+                sstype="",
+                power_w=700,
+                production_w=None,
+                exchange_w=None,
+            )
+        ],
+    )
 
     def fail():
         raise SolarEdgeAccessError(
@@ -1847,6 +1945,12 @@ def test_solaredge_modbus_connect_failure_falls_back_to_alfa(monkeypatch, tmp_pa
 
     reports = []
     runtime.controller.grid.read = fail
+    runtime.controller.vehicle.state = replace(
+        runtime.controller.vehicle.state,
+        charging_state="Complete",
+        actual_current_a=0,
+        charger_power_kw=0,
+    )
     runtime.alfa_grid = AlfaMeter()
     runtime.reporter.notify = lambda *args, **kwargs: reports.append(
         (args, kwargs)
@@ -2888,6 +2992,26 @@ def test_solaredge_modbus_uses_alfa_at_night_without_waking_inverter(
     )
     runtime.store.save(runtime.current)
     runtime._apply_runtime_settings(runtime.current)
+    runtime.controller.vehicle.state = replace(
+        runtime.controller.vehicle.state,
+        charging_state="Complete",
+        actual_current_a=0,
+        charger_power_kw=0,
+    )
+    monkeypatch.setattr(
+        "tesla_energy_controller.web.read_energy_points_from_settings",
+        lambda _settings: [
+            VimarEnergyPoint(
+                idsf=1,
+                name="Casa",
+                sftype="",
+                sstype="",
+                power_w=700,
+                production_w=None,
+                exchange_w=None,
+            )
+        ],
+    )
 
     class AlfaMeter:
         @staticmethod
@@ -2914,7 +3038,7 @@ def test_solaredge_modbus_uses_alfa_at_night_without_waking_inverter(
     assert status["energy_source"] == "alfa-modbus"
     assert status["solar_source"] == "solaredge-modbus"
     assert status["solar_source_standby"] is True
-    assert status["solar_power_w"] == 0
+    assert status["solar_power_w"] == 1200
 
 
 def test_dashboard_flow_metric_uses_net_grid_balance(monkeypatch, tmp_path):

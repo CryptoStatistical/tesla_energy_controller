@@ -103,7 +103,10 @@ remain at the five-minute cadence, while the Modbus session is kept alive in mem
 When ALFA grid reading is enabled, ALFA is authoritative for import/export. SolarEdge Modbus is then
 used only for the inverter PV model, and the SolarEdge meter model is skipped to reduce pressure on
 the single Modbus session. Outside the solar window, if ALFA is available, the service avoids polling
-SolarEdge Modbus, assumes PV is zero, and keeps monitoring grid/house values from ALFA.
+SolarEdge Modbus and keeps monitoring grid/house values from ALFA. If the SolarEdge Modbus
+connection fails during the solar window and SolarEdge web credentials are configured, the service
+temporarily uses SolarEdge web for PV production while ALFA remains authoritative for import/export.
+Energy flows are normalized so the dashboard does not show `solar=0` together with positive export.
 
 Operational recommendations:
 

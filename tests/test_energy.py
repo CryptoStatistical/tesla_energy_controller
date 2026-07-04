@@ -10,6 +10,7 @@ def test_house_is_real_minus_estimated_grid_balance():
         export_power_w=1200,
     )
 
+    assert breakdown.solar_power_w == 5200
     assert breakdown.estimated_import_power_w == 0
     assert breakdown.estimated_export_power_w == 1050
     assert breakdown.device_power_w == 150
@@ -45,6 +46,23 @@ def test_meter_house_never_drops_below_known_appliances():
         export_power_w=1400,
     )
 
+    assert breakdown.solar_power_w == 5400
     assert breakdown.device_power_w == 0
     assert breakdown.house_power_w == 1000
-    assert breakdown.total_consumption_w == 3600
+    assert breakdown.total_consumption_w == 4000
+
+
+def test_meter_export_reconstructs_missing_solar_from_known_loads():
+    breakdown = reconcile_energy_flows(
+        solar_power_w=0,
+        appliances_power_w=610,
+        tesla_power_w=0,
+        import_power_w=0,
+        export_power_w=2870,
+    )
+
+    assert breakdown.solar_power_w == 3480
+    assert breakdown.import_power_w == 0
+    assert breakdown.export_power_w == 2870
+    assert breakdown.house_power_w == 610
+    assert breakdown.total_consumption_w == 610
