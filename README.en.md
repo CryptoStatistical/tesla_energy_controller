@@ -90,6 +90,27 @@ remaining quota headroom instead. `MIN_CHARGE_AMPS` is therefore a normal prefer
 absolute one in this branch: current can go below it, or charging can be stopped and later restarted,
 to stay inside the configured quota.
 
+## SolarEdge Modbus TCP
+
+`ENERGY_SOURCE=solaredge-modbus` is the preferred local PV source. The official SolarEdge SunSpec
+technical note documents one Modbus TCP session and a two-minute TCP idle time. For that reason,
+`SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS` is treated as a light refresh/keepalive interval, validated
+between 10 and 110 seconds. The recommended value is 30 seconds.
+
+This is separate from `POLL_INTERVAL_SECONDS=300`: historical SQLite samples and control decisions
+remain at the five-minute cadence, while the Modbus session is kept alive in memory.
+
+When ALFA grid reading is enabled, ALFA is authoritative for import/export. SolarEdge Modbus is then
+used only for the inverter PV model, and the SolarEdge meter model is skipped to reduce pressure on
+the single Modbus session. Outside the solar window, if ALFA is available, the service avoids polling
+SolarEdge Modbus, assumes PV is zero, and keeps monitoring grid/house values from ALFA.
+
+Operational recommendations:
+
+- prefer wired Ethernet for the inverter; Wi-Fi is often unstable for Modbus TCP;
+- make sure no other Home Assistant/Node-RED/script client is polling SolarEdge at the same time;
+- if the TCP port remains closed after standby, re-enable Modbus TCP from SetApp or request a firmware update.
+
 ## Tesla Power And Control
 
 There are two separate concepts:

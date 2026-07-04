@@ -16,6 +16,7 @@ STATUS_FIELDS = (
     "energy_source",
     "solar_source",
     "solar_source_degraded",
+    "solar_source_standby",
     "expected_phases",
     "solar_power_w",
     "house_power_w",

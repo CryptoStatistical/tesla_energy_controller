@@ -2840,6 +2840,83 @@ def test_alfa_keeps_five_minute_control_interval(monkeypatch, tmp_path):
     assert runtime.status_payload()["poll_interval_seconds"] == 300
 
 
+def test_solaredge_modbus_refresh_keeps_connection_under_idle_limit(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    monkeypatch.setenv("SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS", "60")
+    monkeypatch.setenv("ALFA_CONTROL_INTERVAL_SECONDS", "300")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(runtime.current, solar_source="solaredge-modbus")
+
+    assert runtime.control_interval_seconds() == 300
+    assert runtime.preview_interval_seconds() == 60
+
+
+def test_solaredge_modbus_skips_meter_when_alfa_grid_is_authoritative(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    monkeypatch.setenv("ALFA_MODBUS_HOST", "192.168.1.169")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        solar_source="solaredge-modbus",
+        alfa_grid_reading_enabled=True,
+    )
+    runtime._apply_runtime_settings(runtime.current)
+
+    assert runtime.controller.grid._read_meter is False
+
+
+def test_solaredge_modbus_uses_alfa_at_night_without_waking_inverter(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("SOLAREDGE_MODBUS_HOST", "192.168.2.126")
+    monkeypatch.setenv("ALFA_MODBUS_HOST", "192.168.1.169")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        solar_source="solaredge-modbus",
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+    )
+    runtime.store.save(runtime.current)
+    runtime._apply_runtime_settings(runtime.current)
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=-350,
+                solar_power_w=1200,
+                import_power_w=0,
+                export_power_w=350,
+                source="alfa-modbus",
+            )
+
+    calls = []
+    runtime.alfa_grid = AlfaMeter()
+    runtime.controller.grid.read = lambda: calls.append("solaredge") or GridMeasurement(
+        total_power_w=0,
+        solar_power_w=9999,
+        source="solaredge-modbus",
+    )
+
+    status = runtime.run_cycle(datetime(2026, 7, 4, 23, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert calls == []
+    assert status["energy_source"] == "alfa-modbus"
+    assert status["solar_source"] == "solaredge-modbus"
+    assert status["solar_source_standby"] is True
+    assert status["solar_power_w"] == 0
+
+
 def test_dashboard_flow_metric_uses_net_grid_balance(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]

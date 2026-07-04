@@ -444,9 +444,9 @@ class Settings:
             raise ConfigurationError("ALFA_MODBUS_TIMEOUT_SECONDS deve essere tra 0 e 30")
         if not 10 <= self.alfa_control_interval_seconds <= 300:
             raise ConfigurationError("ALFA_CONTROL_INTERVAL_SECONDS deve essere tra 10 e 300")
-        if not 10 <= self.solaredge_modbus_poll_interval_seconds <= 300:
+        if not 10 <= self.solaredge_modbus_poll_interval_seconds <= 110:
             raise ConfigurationError(
-                "SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS deve essere tra 10 e 300"
+                "SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS deve essere tra 10 e 110"
             )
         if self.grid_import_limit_w < 0:
             raise ConfigurationError("GRID_IMPORT_LIMIT_W non può essere negativo")

@@ -17,6 +17,7 @@ def build_grid_source(
     source: str | None = None,
     *,
     expected_phases: int | None = None,
+    read_solaredge_meter: bool = True,
 ):
     selected = (source or settings.energy_source).strip().casefold()
     phase_count = settings.expected_phases if expected_phases is None else expected_phases
@@ -55,6 +56,7 @@ def build_grid_source(
             phase_count,
             settings.solaredge_grid_power_sign,
             settings.solaredge_inverter_base,
+            read_meter=read_solaredge_meter,
         )
     raise ConfigurationError(f"Sorgente fotovoltaico non supportata: {selected}")
 

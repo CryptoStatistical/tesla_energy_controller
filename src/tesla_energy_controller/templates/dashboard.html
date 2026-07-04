@@ -504,7 +504,7 @@
                   <option value="mock" {% if current.solar_source == 'mock' %}selected{% endif %}>Mock locale</option>
                 {% endif %}
               </select>
-              <span class="field-note">Modbus: {{ hard.solaredge_modbus_host or 'host non configurato' }}:{{ hard.solaredge_modbus_port }} · ogni {{ hard.solaredge_modbus_poll_interval_seconds }}s</span>
+              <span class="field-note">Modbus: {{ hard.solaredge_modbus_host or 'host non configurato' }}:{{ hard.solaredge_modbus_port }} · keepalive {{ hard.solaredge_modbus_poll_interval_seconds }}s</span>
             </div>
             {% if alfa_mode %}
             <div>

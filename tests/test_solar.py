@@ -193,6 +193,38 @@ def test_modbus_read_uses_inverter_even_without_meter():
     assert measurement.export_power_w is None
 
 
+def test_modbus_read_can_skip_meter_to_keep_inverter_session():
+    class Response:
+        def __init__(self, registers):
+            self.registers = registers
+
+        @staticmethod
+        def isError():
+            return False
+
+    registers = [0] * SolarEdgeModbusSource.INVERTER_READ_COUNT
+    registers[0] = 103
+    registers[14] = 4200
+    registers[15] = 0
+    source = SolarEdgeModbusSource.__new__(SolarEdgeModbusSource)
+    source._inverter_model_address = 40069
+    source._model_address = 40188
+    source._read_meter = False
+    reads = []
+
+    def read(address, _count):
+        reads.append(address)
+        if address != 40069:
+            raise AssertionError("il meter SolarEdge non deve essere letto")
+        return Response(registers)
+
+    source._read = read
+    measurement = source.read()
+
+    assert measurement.solar_power_w == 4200
+    assert reads == [40069]
+
+
 def test_modbus_read_combines_inverter_and_meter():
     class Response:
         def __init__(self, registers):

@@ -251,6 +251,7 @@ class WebRuntime:
         self.current = self.store.load()
         self._active_solar_source = ""
         self._active_expected_phases = 0
+        self._active_solaredge_read_meter: bool | None = None
         self._solar_source_started_at = datetime.now(timezone.utc).astimezone()
         self._apply_runtime_settings(self.current)
         self.alfa_grid = None
@@ -335,19 +336,29 @@ class WebRuntime:
         }
 
     def _solar_grid_for(self, source: str, expected_phases: int):
+        read_solaredge_meter = self._solaredge_read_meter_enabled(self.current)
         try:
             return build_grid_source(
                 self.hard,
                 source,
                 expected_phases=expected_phases,
+                read_solaredge_meter=read_solaredge_meter,
             )
         except ConfigurationError as exc:
             raise RuntimeSettingsError(str(exc)) from exc
 
+    def _solaredge_read_meter_enabled(self, settings: RuntimeSettings) -> bool:
+        return not (settings.alfa_grid_reading_enabled and self.hard.alfa_modbus_host)
+
     def _apply_runtime_settings(self, settings: RuntimeSettings) -> None:
+        read_solaredge_meter = self._solaredge_read_meter_enabled(settings)
         if (
             settings.solar_source != self._active_solar_source
             or settings.expected_phases != self._active_expected_phases
+            or (
+                settings.solar_source == "solaredge-modbus"
+                and read_solaredge_meter != self._active_solaredge_read_meter
+            )
         ):
             self.controller.grid = self._solar_grid_for(
                 settings.solar_source,
@@ -355,6 +366,7 @@ class WebRuntime:
             )
             self._active_solar_source = settings.solar_source
             self._active_expected_phases = settings.expected_phases
+            self._active_solaredge_read_meter = read_solaredge_meter
             self._solar_source_started_at = datetime.now(timezone.utc).astimezone()
         settings.apply(self.controller)
         if getattr(self, "wall_connector", None) is not None:
@@ -367,7 +379,10 @@ class WebRuntime:
         return self.hard.poll_interval_seconds
 
     def preview_interval_seconds(self) -> int:
-        return min(self.hard.alfa_control_interval_seconds, self.control_interval_seconds())
+        intervals = [self.hard.alfa_control_interval_seconds, self.control_interval_seconds()]
+        if self.current.solar_source == "solaredge-modbus":
+            intervals.append(self.hard.solaredge_modbus_poll_interval_seconds)
+        return min(intervals)
 
     def window(self, now: datetime | None = None) -> OperatingWindow:
         return operating_window(self.current, self.hard, now)
@@ -735,30 +750,55 @@ class WebRuntime:
             source=f"{primary.source}+alfa-modbus",
         )
 
-    def _read_snapshot(self, stamp: str, *, wants_ble_control: bool = True) -> tuple:
+    def _read_snapshot(
+        self,
+        stamp: str,
+        *,
+        wants_ble_control: bool = True,
+        solar_window_active: bool = True,
+    ) -> tuple:
         # FV/casa/rete non dipendono dall'auto: leggiamoli sempre, per primi.
         solar_source_degraded = False
         solar_source_error = None
-        try:
-            measurement = self.controller.grid.read()
-        except SolarEdgeAccessError as exc:
-            if not (
-                exc.phase == "modbus-connect"
-                and self.current.solar_source == "solaredge-modbus"
-                and self.current.alfa_grid_reading_enabled
-                and self.alfa_grid is not None
-            ):
-                raise
-            LOG.warning(
-                "SolarEdge Modbus non disponibile, uso temporaneamente ALFA: %s",
-                exc,
+        solar_source_standby = False
+        if (
+            self.current.solar_source == "solaredge-modbus"
+            and not solar_window_active
+            and self.current.alfa_grid_reading_enabled
+            and self.alfa_grid is not None
+        ):
+            measurement = replace(
+                self.alfa_grid.read(),
+                solar_power_w=0.0,
             )
-            solar_source_error = self._mark_solaredge_modbus_connect_degraded(
-                exc,
-                datetime.fromisoformat(stamp),
-            )
-            measurement = self.alfa_grid.read()
-            solar_source_degraded = True
+            solar_source_standby = True
+        else:
+            try:
+                measurement = self.controller.grid.read()
+            except SolarEdgeAccessError as exc:
+                if not (
+                    exc.phase == "modbus-connect"
+                    and self.current.solar_source == "solaredge-modbus"
+                    and self.current.alfa_grid_reading_enabled
+                    and self.alfa_grid is not None
+                ):
+                    raise
+                if self._solaredge_modbus_down_since is None:
+                    LOG.warning(
+                        "SolarEdge Modbus non disponibile, uso temporaneamente ALFA: %s",
+                        exc,
+                    )
+                else:
+                    LOG.debug(
+                        "SolarEdge Modbus ancora non disponibile, resto su ALFA: %s",
+                        exc,
+                    )
+                solar_source_error = self._mark_solaredge_modbus_connect_degraded(
+                    exc,
+                    datetime.fromisoformat(stamp),
+                )
+                measurement = self.alfa_grid.read()
+                solar_source_degraded = True
         appliances = self._read_appliances()
         vimar_power_w = sum(max(float(item["power_w"] or 0), 0.0) for item in appliances)
         car = None
@@ -935,6 +975,7 @@ class WebRuntime:
             "solar_source": self.current.solar_source,
             "energy_source": measurement.source,
             "solar_source_degraded": solar_source_degraded,
+            "solar_source_standby": solar_source_standby,
             "solar_source_error": solar_source_error,
             "solar_power_w": solar_power_w,
             "grid_power_w": measurement.total_power_w,
@@ -1072,6 +1113,7 @@ class WebRuntime:
                     stamp,
                     wants_ble_control=self.current.enabled
                     and (window.active or self.hard.tesla_data_source == "wall-connector"),
+                    solar_window_active=window.active,
                 )
             except Exception as exc:
                 if self._defer_solaredge_modbus_connect_error(exc, cycle_time, window_data):
@@ -1099,7 +1141,9 @@ class WebRuntime:
                 )
                 self._publish_status_cache()
                 return dict(self.last_status)
-            if not energy.get("solar_source_degraded"):
+            if not energy.get("solar_source_degraded") and not energy.get(
+                "solar_source_standby"
+            ):
                 self._recover_solaredge_modbus_connect()
             if force_measurement and not measurement.fresh:
                 measurement = replace(measurement, fresh=True)

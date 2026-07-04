@@ -746,6 +746,7 @@ class SolarEdgeModbusSource:
         expected_phases: int,
         power_sign: int,
         inverter_base: int = 40069,
+        read_meter: bool = True,
     ) -> None:
         from pymodbus.client import ModbusTcpClient
 
@@ -758,6 +759,7 @@ class SolarEdgeModbusSource:
         self._model_address = meter_base + self.METER_MODEL_OFFSET
         self._expected_phases = expected_phases
         self._power_sign = power_sign
+        self._read_meter = read_meter
         self._retry_attempts = 3
         self._retry_delay_seconds = 1.0
 
@@ -882,6 +884,8 @@ class SolarEdgeModbusSource:
                 hints=("Verificare unit ID e registri SunSpec SolarEdge.",),
             )
         inverter = self.decode_inverter_registers(list(inverter_response.registers))
+        if not getattr(self, "_read_meter", True):
+            return inverter
 
         try:
             meter_response = self._read(self._model_address, self.READ_COUNT)

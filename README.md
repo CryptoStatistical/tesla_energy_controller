@@ -131,6 +131,24 @@ SOLAREDGE_INVERTER_BASE=40069
 SOLAREDGE_METER_BASE=40121
 ```
 
+Secondo la nota tecnica SolarEdge SunSpec, il server Modbus TCP supporta una sola sessione e ha
+idle TCP di 2 minuti. Per questo `SOLAREDGE_MODBUS_POLL_INTERVAL_SECONDS` è un refresh/keepalive
+leggero e deve restare sotto i 2 minuti: il servizio valida 10-110 secondi e usa 30 secondi come
+valore consigliato. Questo non cambia il campionamento storico: `POLL_INTERVAL_SECONDS=300` resta
+la frequenza di salvataggio SQLite e decisione controller.
+
+Con **ALFA lettura rete** attivo, ALFA è il contatore autorevole per import/export: SolarEdge Modbus
+legge solo il modello inverter FV e non interroga il meter SolarEdge. Questo evita una seconda
+lettura inutile e aiuta a mantenere stabile la singola sessione Modbus. Fuori dalla finestra solare,
+se ALFA è disponibile, il servizio non interroga SolarEdge Modbus: considera il FV a zero e continua
+il monitoraggio rete/casa da ALFA, evitando polling notturno mentre l'inverter può essere in standby.
+
+Note operative:
+
+- preferire Ethernet cablato allo Wi-Fi dell'inverter per Modbus TCP;
+- evitare altri client Modbus paralleli: SolarEdge accetta una sola sessione;
+- se la porta resta chiusa dopo riavvii/standby, riabilitare Modbus TCP da SetApp o aggiornare il firmware.
+
 Il modello inverter SunSpec `101-104` fornisce la produzione FV istantanea. Il modello meter
 `201-204`, se presente, aggiunge import/export; se non è disponibile, la sorgente Modbus resta
 valida per il FV e non fa fallback al portale web.
