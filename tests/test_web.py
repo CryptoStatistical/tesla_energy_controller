@@ -3065,6 +3065,34 @@ def test_dashboard_switches_between_main_and_alfa_interface(monkeypatch, tmp_pat
         ]
 
 
+def test_manual_mode_badge_only_shows_for_manual_override(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.last_status.update(
+        {
+            "target_a": 5,
+            "manual_override_active": False,
+        }
+    )
+
+    with app.test_client() as client:
+        login(client)
+        html = client.get("/").get_data(as_text=True)
+        assert '<em class="target-override-label" hidden>manual mode</em>' in html
+
+        runtime.last_status.update(
+            {
+                "target_a": 16,
+                "manual_override_active": True,
+            }
+        )
+        html = client.get("/").get_data(as_text=True)
+        assert '<em class="target-override-label" >manual mode</em>' in html
+
+    css = Path("src/tesla_energy_controller/static/dashboard.css").read_text()
+    assert ".target-override-label[hidden] { display: none; }" in css
+
+
 def test_alfa_keeps_five_minute_control_interval(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
