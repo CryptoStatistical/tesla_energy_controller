@@ -431,6 +431,22 @@ class EnergyController:
         manual_override_amps: int | None = None,
     ) -> Decision:
         if not car.is_charging:
+            if (
+                projected_quarter_hour_import_w is not None
+                and power_quota_limit_w is not None
+                and manual_override_amps is not None
+            ):
+                resumed = self._resume_from_power_quota(
+                    measurement,
+                    car,
+                    projected_import_w=projected_quarter_hour_import_w,
+                    power_quota_limit_w=power_quota_limit_w,
+                    power_quota_hysteresis_w=power_quota_hysteresis_w,
+                    extra_grid_power_w=0.0,
+                    manual_override_amps=manual_override_amps,
+                )
+                if resumed is not None:
+                    return resumed
             return self._not_charging_decision(car)
         override_a = (
             _manual_override_current_a(car, manual_override_amps)

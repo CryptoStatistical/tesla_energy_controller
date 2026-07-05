@@ -694,16 +694,20 @@ class WebRuntime:
             return data
         if not self.current.enabled:
             return data
-        target_a = self.last_status.get("target_a")
-        if target_a is not None:
-            data["target_a"] = target_a
-            return data
+        wall_charge_active = self._wall_connector_charge_active(energy)
         if (
             action in {"outside-window", "preview"}
             and not window_active
-            and self._wall_connector_charge_active(energy)
+            and (wall_charge_active or self._wall_connector_quota_resume_pending(energy))
         ):
-            data["target_a"] = self.current.min_charge_amps
+            data["target_a"] = self._minimum_preview_target(
+                energy,
+                check_restart_room=not wall_charge_active,
+            )
+            return data
+        target_a = self.last_status.get("target_a")
+        if target_a is not None:
+            data["target_a"] = target_a
             return data
         return data
 
@@ -757,6 +761,40 @@ class WebRuntime:
             (current_a is not None and current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A)
             or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
         )
+
+    def _wall_connector_quota_resume_pending(self, energy: dict) -> bool:
+        if not getattr(self.controller, "_paused_for_power_quota", False):
+            return False
+        if energy.get("tesla_ble_control_state") == "standby":
+            return False
+        return bool(
+            energy.get("wall_connector_vehicle_connected")
+            or energy.get("wall_connector_contactor_closed")
+        )
+
+    def _minimum_preview_target(self, energy: dict, *, check_restart_room: bool) -> int:
+        upper = min(
+            self.current.max_charge_amps,
+            self.current.manual_override_amps - 1,
+        )
+        target = max(0, min(self.current.min_charge_amps, upper))
+        if target <= 0:
+            return 0
+        if not check_restart_room:
+            return target
+        projected = _as_float(energy.get("projected_quarter_hour_import_w"))
+        limit = _as_float(energy.get("power_quota_limit_w")) or self.current.power_quota_target_w
+        if projected is None or not limit:
+            return target
+        voltage = _as_float(energy.get("voltage_v")) or self.hard.nominal_phase_voltage_v
+        phases = max(int(self.current.expected_phases or 1), 1)
+        export_w = max(_as_float(energy.get("export_power_w")) or 0.0, 0.0)
+        room_w = max(
+            limit - self.current.power_quota_hysteresis_w - projected + export_w,
+            0.0,
+        )
+        quota_target = math.floor(room_w / (voltage * phases))
+        return max(0, min(target, quota_target))
 
     def _complete_ble_standby_active(self, wall_vitals) -> bool:
         if not self._tesla_complete_ble_standby:
@@ -1356,7 +1394,10 @@ class WebRuntime:
                 and self.current.enabled
                 and not window.active
                 and self.hard.tesla_data_source == "wall-connector"
-                and self._wall_connector_charge_active(energy)
+                and (
+                    self._wall_connector_charge_active(energy)
+                    or self._wall_connector_quota_resume_pending(energy)
+                )
             )
             decision = None
             try:

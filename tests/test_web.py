@@ -2734,6 +2734,135 @@ def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
     assert runtime.controller.vehicle.commands == [5, "start"]
 
 
+def test_wall_connector_outside_window_restarts_after_quota_pause(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+        extra_grid_power_w=2000,
+        power_quota_target_w=7000,
+        power_quota_hysteresis_w=500,
+        min_charge_amps=5,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.dry_run = False
+    runtime.controller.restore_power_quota_pause()
+    runtime.controller.vehicle.state = ChargeState("Stopped", 5, 32, 0, 3, 230)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=0,
+        source="solaredge-web",
+        fresh=False,
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=120,
+                evse_state=9,
+            )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=1300,
+                solar_power_w=0,
+                import_power_w=1300,
+                export_power_w=0,
+                source="alfa-modbus",
+            )
+
+    runtime.wall_connector = Wall()
+    runtime.alfa_grid = AlfaMeter()
+
+    status = runtime.run_cycle(datetime(2026, 7, 5, 22, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["state"] == "ok"
+    assert status["action"] == "start"
+    assert status["target_a"] == 5
+    assert status["tesla_ble_control_required"] is True
+    assert status["tesla_ble_control_state"] == "connected"
+    assert "quota ripristinato" in status["message"]
+    assert runtime.controller.vehicle.commands == [5, "start"]
+
+
+def test_wall_connector_preview_uses_minimum_after_quota_pause(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        alfa_grid_reading_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+        power_quota_target_w=7000,
+        power_quota_hysteresis_w=500,
+        min_charge_amps=5,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.restore_power_quota_pause()
+    runtime.last_status = {"target_a": 0}
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=0,
+        source="solaredge-web",
+        fresh=False,
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=120,
+                evse_state=9,
+            )
+
+    class AlfaMeter:
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=1300,
+                solar_power_w=0,
+                import_power_w=1300,
+                export_power_w=0,
+                source="alfa-modbus",
+            )
+
+    runtime.wall_connector = Wall()
+    runtime.alfa_grid = AlfaMeter()
+
+    status = runtime.run_cycle(
+        datetime(2026, 7, 5, 22, tzinfo=ZoneInfo("Europe/Rome")),
+        control=False,
+        persist=False,
+    )
+
+    assert status["state"] == "preview"
+    assert status["target_a"] == 5
+    assert status["tesla_ble_control_required"] is True
+    assert status["tesla_ble_control_state"] == "connected"
+
+
 def test_alfa_grid_delta_is_added_to_house_consumption(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
