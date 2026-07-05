@@ -18,6 +18,7 @@ from .diagnostics import ErrorReporter, EventReporter, diagnostic_payload, rende
 from .energy import reconcile_energy_flows
 from .factories import build_grid_source
 from .live_status import write_status_cache
+from .models import GridMeasurement
 from .runtime import (
     RuntimeSettings,
     RuntimeSettingsError,
@@ -706,6 +707,16 @@ class WebRuntime:
             return data
         return data
 
+    @staticmethod
+    def _cached_solar_ok_for_control(measurement: GridMeasurement, car) -> bool:
+        if measurement.fresh:
+            return False
+        if not str(measurement.source or "").startswith(("solaredge-web", "solaredge-cloud")):
+            return False
+        if measurement.solar_power_w is None:
+            return False
+        return bool(car is not None and car.is_charging)
+
     def _manual_override_current_a(self, status: dict) -> float | None:
         threshold = float(self.current.manual_override_amps)
         values = [
@@ -723,6 +734,7 @@ class WebRuntime:
         active = override_a is not None
         status["manual_override_active"] = active
         if not active:
+            status["manual_override_a"] = None
             return
         display_a = int(round(override_a))
         status["manual_override_a"] = display_a
@@ -1264,6 +1276,9 @@ class WebRuntime:
                 )
             if force_measurement and not measurement.fresh:
                 measurement = replace(measurement, fresh=True)
+            elif control and self._cached_solar_ok_for_control(measurement, car):
+                measurement = replace(measurement, fresh=True)
+                energy["solar_measurement_reused_for_control"] = True
 
             self._apply_runtime_settings(self.current)
             observed_at = datetime.fromisoformat(stamp)
@@ -1562,17 +1577,34 @@ class WebRuntime:
 
     def _check_events(self, status: dict, car) -> None:
         if car is not None:
-            manual_override = (
-                car.is_charging and car.current_request_a >= self.current.manual_override_amps
-            )
-            self._threshold_event(
-                "manual_override",
-                manual_override,
-                f"Tesla impostata manualmente a {car.current_request_a} A: controller non interviene",
-                "info",
-                {"current_a": car.current_request_a, "threshold_a": self.current.manual_override_amps},
-                mail_enabled=False,
-            )
+            threshold = self.current.manual_override_amps
+            manual_override = car.is_charging and car.current_request_a >= threshold
+            details = {"current_a": car.current_request_a, "threshold_a": threshold}
+            if manual_override:
+                self._threshold_event(
+                    "manual_override",
+                    True,
+                    (
+                        f"Tesla impostata manualmente a {car.current_request_a} A: "
+                        "controller non interviene"
+                    ),
+                    "info",
+                    details,
+                    mail_enabled=False,
+                )
+            elif "manual_override" in self.active_events:
+                self.active_events.remove("manual_override")
+                self._event(
+                    datetime.now(timezone.utc).astimezone().isoformat(),
+                    "manual_override_recovered",
+                    (
+                        f"Manual mode rientrato: Tesla a {car.current_request_a} A "
+                        f"sotto soglia {threshold} A, controller riprende"
+                    ),
+                    "info",
+                    details,
+                    mail_enabled=False,
+                )
         self._check_tesla_night_power(status)
 
     def _check_tesla_night_power(self, status: dict) -> None:

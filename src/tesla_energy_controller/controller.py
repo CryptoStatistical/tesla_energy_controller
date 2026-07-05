@@ -202,7 +202,10 @@ class EnergyController:
             return 0
         if target < self.min_charge_amps:
             target = self.min_charge_amps
-        return min(target, upper)
+        target = min(target, upper)
+        if target > car.current_request_a:
+            target = min(target, car.current_request_a + self.max_ramp_up_a)
+        return target
 
     def _target_amps_for_meter(
         self,

@@ -221,7 +221,12 @@ def test_budget_mode_zero_production_targets_zero():
 
 def test_budget_mode_keeps_target_below_manual_override():
     measurement = GridMeasurement(total_power_w=0, solar_power_w=20000)
-    subject, vehicle = controller(measurement, state(current=6), max_charge_amps=16)
+    subject, vehicle = controller(
+        measurement,
+        state(current=6),
+        max_charge_amps=16,
+        max_ramp_up_a=20,
+    )
     decision = subject.decide_from_snapshot(
         measurement,
         state(current=6),
@@ -231,6 +236,22 @@ def test_budget_mode_keeps_target_below_manual_override():
     )
     assert decision.target_a == 13
     assert vehicle.commands == [13]
+
+
+def test_budget_mode_ramps_up_from_manual_override_recovery():
+    measurement = GridMeasurement(total_power_w=0, solar_power_w=7137)
+    subject, vehicle = controller(measurement, state(current=5), max_ramp_up_a=2)
+
+    decision = subject.decide_from_snapshot(
+        measurement,
+        state(current=5),
+        non_tesla_power_w=1413,
+        extra_grid_power_w=3000,
+        manual_override_amps=14,
+    )
+
+    assert decision.target_a == 7
+    assert vehicle.commands == [7]
 
 
 def test_budget_mode_respects_manual_override_threshold():

@@ -1096,11 +1096,13 @@ def test_manual_override_event_is_logged_without_email(monkeypatch, tmp_path):
     assert events[0]["level"] == "info"
     assert notifications == []
 
-    car = ChargeState("Complete", 0, 32, 0, 3, 230)
+    car = ChargeState("Charging", 5, 32, 5, 3, 230)
     runtime._check_events({"window_active": True, "tesla_power_w": 0}, car)
 
     events = runtime.db.latest_events()
     assert events[0]["kind"] == "manual_override_recovered"
+    assert "controller riprende" in events[0]["message"]
+    assert "controller non interviene" not in events[0]["message"]
     assert notifications == []
 
 
@@ -2244,6 +2246,91 @@ def test_wall_connector_preview_marks_manual_override_from_actual_current(
     assert status["target_a"] == 16
     assert status["message"] == "override manuale: Tesla impostata a 16 A"
     assert status["house_power_w"] >= status["vimar_power_w"]
+
+
+def test_wall_connector_reuses_cached_solaredge_after_manual_override_recovery(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    monkeypatch.setenv("SOLAREDGE_USERNAME", "demo@example.com")
+    monkeypatch.setenv("SOLAREDGE_PASSWORD", "password")
+    monkeypatch.setenv("SOLAREDGE_SITE_ID", "4508922")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        solar_source="solaredge-web",
+        manual_override_amps=14,
+    )
+    runtime.store.save(runtime.current)
+    runtime.last_status.update(
+        {
+            "state": "manual-override",
+            "action": "manual-override",
+            "message": "override manuale: Tesla impostata a 16 A",
+            "manual_override_active": True,
+            "manual_override_a": 16,
+            "target_a": 16,
+        }
+    )
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=-2500,
+        solar_power_w=7137,
+        fresh=False,
+        source="solaredge-web",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Charging",
+        current_request_a=5,
+        current_request_max_a=16,
+        actual_current_a=5.1,
+        phases=3,
+        voltage_v=230,
+        charger_power_kw=3.52,
+    )
+    monkeypatch.setattr(
+        "tesla_energy_controller.web.read_energy_points_from_settings",
+        lambda _settings: [
+            VimarEnergyPoint(
+                idsf=1,
+                name="Casa",
+                sftype="",
+                sstype="",
+                power_w=1413,
+                production_w=None,
+                exchange_w=None,
+            )
+        ],
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=5.1,
+                phase_currents_a=(5.1, 5.1, 5.1),
+                power_w=3519,
+                evse_state=11,
+            )
+
+    runtime.wall_connector = Wall()
+
+    status = runtime.run_cycle(datetime(2026, 7, 5, 13, 37, tzinfo=ZoneInfo("Europe/Rome")))
+
+    assert status["solar_measurement_reused_for_control"] is True
+    assert status["manual_override_active"] is False
+    assert status["manual_override_a"] is None
+    assert status["action"] == "dry-run"
+    assert status["target_a"] == 7
+    assert status["message"] != "misura SolarEdge cloud già elaborata"
 
 
 def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_path):
