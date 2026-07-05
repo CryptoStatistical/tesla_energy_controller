@@ -127,7 +127,10 @@ def create_app(
 
     @app.after_request
     def security_headers(response):
-        response.headers["Cache-Control"] = "no-store"
+        if request.endpoint == "static":
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; script-src 'self'; style-src 'self'; "
             "img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; "

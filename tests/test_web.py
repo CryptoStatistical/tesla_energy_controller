@@ -961,9 +961,13 @@ def test_static_assets_are_cache_busted(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     with app.test_client() as client:
         login(client)
-        html = client.get("/").text
+        page = client.get("/")
+        html = page.text
+        asset = client.get("/static/dashboard.js?v=test")
     assert "dashboard.css?v=" in html
     assert "dashboard.js?v=" in html
+    assert page.headers["Cache-Control"] == "no-store"
+    assert asset.headers["Cache-Control"] == "public, max-age=31536000, immutable"
 
 
 def test_monthly_peak_import_in_status(monkeypatch, tmp_path):
