@@ -785,10 +785,7 @@ class WebRuntime:
             return False
         if energy.get("tesla_ble_control_state") == "standby":
             return False
-        return bool(
-            energy.get("wall_connector_vehicle_connected")
-            or energy.get("wall_connector_contactor_closed")
-        )
+        return self._wall_connector_charge_active(energy, useful_only=True)
 
     def _minimum_preview_target(self, energy: dict, *, check_restart_room: bool) -> int:
         upper = min(
@@ -979,20 +976,14 @@ class WebRuntime:
                 tesla_power_source = "wall-connector-unavailable"
             else:
                 tesla_power_w = wall_vitals.power_w
+                wall_charge_active = (
+                    wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
+                    or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
+                )
                 quota_resume_pending = bool(
                     getattr(self.controller, "_paused_for_power_quota", False)
-                    and (wall_vitals.vehicle_connected or wall_vitals.contactor_closed)
+                    and wall_charge_active
                 )
-                wall_charge_active = (
-                    wall_vitals.contactor_closed
-                    or wall_vitals.vehicle_current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A
-                    or wall_vitals.power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W
-                )
-                if not solar_window_active:
-                    wall_charge_active = (
-                        wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
-                        or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
-                    )
                 complete_ble_standby = self._complete_ble_standby_active(wall_vitals)
                 if complete_ble_standby:
                     tesla_ble_control_required = False

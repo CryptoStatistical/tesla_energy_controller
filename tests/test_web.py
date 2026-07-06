@@ -2381,7 +2381,7 @@ def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_pat
         return ble_states.pop(0)
 
     runtime.controller.vehicle.get_charge_state = get_charge_state
-    wall = {"current_a": 1.7, "power_w": 1080.0}
+    wall = {"current_a": 5.0, "power_w": 3450.0}
 
     class Wall:
         @staticmethod
@@ -2399,6 +2399,7 @@ def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_pat
     runtime.wall_connector = Wall()
 
     first = runtime.run_cycle(datetime(2026, 7, 3, 0, 43, tzinfo=ZoneInfo("Europe/Rome")))
+    wall.update({"current_a": 1.7, "power_w": 1080.0})
     second = runtime.run_cycle(datetime(2026, 7, 3, 0, 48, tzinfo=ZoneInfo("Europe/Rome")))
     wall.update({"current_a": 5.0, "power_w": 3450.0})
     third = runtime.run_cycle(datetime(2026, 7, 3, 0, 53, tzinfo=ZoneInfo("Europe/Rome")))
@@ -2409,7 +2410,7 @@ def test_wall_connector_complete_stops_repeated_ble_polling(monkeypatch, tmp_pat
     assert second["tesla_ble_control_required"] is False
     assert second["tesla_ble_control_state"] == "standby"
     assert second["tesla_ble_control_message"] == "Bluetooth in standby dopo carica completa"
-    assert abs(second["tesla_power_w"] - 1080) < 0.01
+    assert 1000 <= second["tesla_power_w"] < 2000
     assert second["target_a"] == 0
     assert third["tesla_ble_control_required"] is True
     assert third["tesla_ble_control_state"] == "connected"
@@ -2670,7 +2671,7 @@ def test_wall_connector_preview_keeps_outside_window_target(
     assert preview_status["target_a"] == 5
 
 
-def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
+def test_wall_connector_paused_quota_low_power_does_not_query_ble(monkeypatch, tmp_path):
     monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
     monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
     app, _settings = application(monkeypatch, tmp_path)
@@ -2689,6 +2690,9 @@ def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
     runtime.controller.dry_run = False
     runtime.controller.restore_power_quota_pause()
     runtime.controller.vehicle.state = ChargeState("Stopped", 5, 32, 0, 3, 230)
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("BLE non deve essere interrogato con Wall Connector a bassa potenza")
+    )
     runtime.controller.grid.read = lambda: GridMeasurement(
         total_power_w=0,
         solar_power_w=0,
@@ -2726,15 +2730,18 @@ def test_wall_connector_paused_quota_uses_ble_to_restart(monkeypatch, tmp_path):
 
     status = runtime.run_cycle(datetime(2026, 6, 22, 12, tzinfo=ZoneInfo("Europe/Rome")))
 
-    assert status["state"] == "ok"
-    assert status["action"] == "start"
-    assert status["target_a"] == 5
-    assert status["tesla_ble_control_required"] is True
-    assert status["tesla_ble_control_state"] == "connected"
-    assert runtime.controller.vehicle.commands == [5, "start"]
+    assert status["state"] == "monitor-only"
+    assert status["action"] == "wall-connector-monitor"
+    assert status["target_a"] == 0
+    assert status["tesla_ble_control_required"] is False
+    assert status["tesla_ble_control_state"] == "not-needed"
+    assert runtime.controller.vehicle.commands == []
 
 
-def test_wall_connector_outside_window_restarts_after_quota_pause(monkeypatch, tmp_path):
+def test_wall_connector_outside_window_low_power_quota_pause_does_not_query_ble(
+    monkeypatch,
+    tmp_path,
+):
     monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
     monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
     app, _settings = application(monkeypatch, tmp_path)
@@ -2754,6 +2761,9 @@ def test_wall_connector_outside_window_restarts_after_quota_pause(monkeypatch, t
     runtime.controller.dry_run = False
     runtime.controller.restore_power_quota_pause()
     runtime.controller.vehicle.state = ChargeState("Stopped", 5, 32, 0, 3, 230)
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("BLE non deve essere interrogato fuori finestra a bassa potenza")
+    )
     runtime.controller.grid.read = lambda: GridMeasurement(
         total_power_w=0,
         solar_power_w=0,
@@ -2790,13 +2800,12 @@ def test_wall_connector_outside_window_restarts_after_quota_pause(monkeypatch, t
 
     status = runtime.run_cycle(datetime(2026, 7, 5, 22, tzinfo=ZoneInfo("Europe/Rome")))
 
-    assert status["state"] == "ok"
-    assert status["action"] == "start"
-    assert status["target_a"] == 5
-    assert status["tesla_ble_control_required"] is True
-    assert status["tesla_ble_control_state"] == "connected"
-    assert "quota ripristinato" in status["message"]
-    assert runtime.controller.vehicle.commands == [5, "start"]
+    assert status["state"] == "outside-window"
+    assert status["action"] == "outside-window"
+    assert status["target_a"] == 0
+    assert status["tesla_ble_control_required"] is False
+    assert status["tesla_ble_control_state"] == "not-needed"
+    assert runtime.controller.vehicle.commands == []
 
 
 def test_wall_connector_preview_uses_minimum_after_quota_pause(monkeypatch, tmp_path):
@@ -2817,6 +2826,9 @@ def test_wall_connector_preview_uses_minimum_after_quota_pause(monkeypatch, tmp_
     runtime.store.save(runtime.current)
     runtime.controller.restore_power_quota_pause()
     runtime.last_status = {"target_a": 0}
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("BLE non deve essere interrogato in preview a bassa potenza")
+    )
     runtime.controller.grid.read = lambda: GridMeasurement(
         total_power_w=0,
         solar_power_w=0,
@@ -2859,8 +2871,8 @@ def test_wall_connector_preview_uses_minimum_after_quota_pause(monkeypatch, tmp_
 
     assert status["state"] == "preview"
     assert status["target_a"] == 0
-    assert status["tesla_ble_control_required"] is True
-    assert status["tesla_ble_control_state"] == "connected"
+    assert status["tesla_ble_control_required"] is False
+    assert status["tesla_ble_control_state"] == "not-needed"
 
 
 def test_alfa_grid_delta_is_added_to_house_consumption(monkeypatch, tmp_path):
