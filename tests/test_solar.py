@@ -225,6 +225,40 @@ def test_modbus_read_can_skip_meter_to_keep_inverter_session():
     assert reads == [40069]
 
 
+def test_modbus_unavailable_inverter_power_is_solaredge_diagnostic():
+    class Response:
+        def __init__(self, registers):
+            self.registers = registers
+
+        @staticmethod
+        def isError():
+            return False
+
+    registers = [0] * SolarEdgeModbusSource.INVERTER_READ_COUNT
+    registers[0] = 103
+    registers[14] = 0x8000
+    registers[15] = 0
+    source = SolarEdgeModbusSource.__new__(SolarEdgeModbusSource)
+    source._host = "192.168.2.126"
+    source._port = 1502
+    source._inverter_model_address = 40069
+
+    def read(address, _count):
+        assert address == 40069
+        return Response(registers)
+
+    source._read = read
+
+    with pytest.raises(SolarEdgeAccessError) as error:
+        source.read()
+
+    report = error.value.to_report_dict()
+    assert report["component"] == "solaredge"
+    assert report["phase"] == "modbus-inverter-decode"
+    assert report["endpoint"] == "tcp://192.168.2.126:1502"
+    assert "ValueError: Potenza inverter SolarEdge non disponibile" in report["response_excerpt"]
+
+
 def test_modbus_read_combines_inverter_and_meter():
     class Response:
         def __init__(self, registers):

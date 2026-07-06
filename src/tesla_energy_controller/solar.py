@@ -883,7 +883,19 @@ class SolarEdgeModbusSource:
                 response_excerpt=str(inverter_response),
                 hints=("Verificare unit ID e registri SunSpec SolarEdge.",),
             )
-        inverter = self.decode_inverter_registers(list(inverter_response.registers))
+        try:
+            inverter = self.decode_inverter_registers(list(inverter_response.registers))
+        except ValueError as exc:
+            raise SolarEdgeAccessError(
+                "Lettura Modbus SolarEdge non riuscita",
+                phase="modbus-inverter-decode",
+                endpoint=f"tcp://{self._host}:{self._port}",
+                response_excerpt=f"{type(exc).__name__}: {exc}",
+                hints=(
+                    "Il registro potenza inverter puo' essere temporaneamente non disponibile.",
+                    "Uso fallback SolarEdge web/ALFA se configurato; verificare Modbus se ricorrente.",
+                ),
+            ) from exc
         if not getattr(self, "_read_meter", True):
             return inverter
 
