@@ -908,12 +908,12 @@ def test_series_target_w_is_zero_when_wall_connector_is_disconnected(
         assert series["points"][-1]["target_w"] == 0
 
 
-def test_series_target_w_uses_minimum_outside_solar_window_when_tesla_active(
+def test_series_target_w_is_zero_for_outside_window_monitoring(
     monkeypatch,
     tmp_path,
 ):
-    # Fuori dalla finestra solare il target non insegue il FV, ma se la Tesla
-    # sta assorbendo davvero resta visibile come minimo monitorato.
+    # Fuori dalla finestra solare il target non deve restare appeso a 5 A solo
+    # perche' la Tesla assorbe shore power: non e' una decisione attiva.
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
     runtime.db.add_measurement(
@@ -953,8 +953,8 @@ def test_series_target_w_uses_minimum_outside_solar_window_when_tesla_active(
         login(client)
         series = client.get("/api/series").get_json()
         assert series["points"][0]["target_w"] > 0
-        assert series["points"][-1]["target"] == 5
-        assert series["points"][-1]["target_w"] == 400 + 5 * 230 * 3
+        assert series["points"][-1]["target"] == 0
+        assert series["points"][-1]["target_w"] == 0
 
 
 def test_static_assets_are_cache_busted(monkeypatch, tmp_path):
@@ -2463,7 +2463,7 @@ def test_wall_connector_standby_outside_window_does_not_query_tesla_ble(
     assert status["action"] == "outside-window"
     assert status["tesla_power_w"] == 92
     assert status["tesla_ble_control_required"] is False
-    assert status.get("target_a") is None
+    assert status["target_a"] == 0
 
 
 def test_wall_connector_logs_tesla_night_power_over_300_w(monkeypatch, tmp_path):
@@ -2858,7 +2858,7 @@ def test_wall_connector_preview_uses_minimum_after_quota_pause(monkeypatch, tmp_
     )
 
     assert status["state"] == "preview"
-    assert status["target_a"] == 5
+    assert status["target_a"] == 0
     assert status["tesla_ble_control_required"] is True
     assert status["tesla_ble_control_state"] == "connected"
 

@@ -694,18 +694,28 @@ class WebRuntime:
             return data
         if not self.current.enabled:
             return data
-        wall_charge_active = self._wall_connector_charge_active(energy)
-        if (
-            action in {"outside-window", "preview"}
-            and not window_active
-            and (wall_charge_active or self._wall_connector_quota_resume_pending(energy))
-        ):
+        inactive_actions = {
+            "outside-window",
+            "wall-connector-monitor",
+            "tesla-ble-control-offline",
+        }
+        if action in inactive_actions:
+            data["target_a"] = 0
+            return data
+        wall_charge_active = self._wall_connector_charge_active(energy, useful_only=True)
+        if action == "preview" and not window_active and not wall_charge_active:
+            data["target_a"] = 0
+            return data
+        if action == "preview" and not window_active and wall_charge_active:
             data["target_a"] = self._minimum_preview_target(
                 energy,
-                check_restart_room=not wall_charge_active,
+                check_restart_room=False,
             )
             return data
         target_a = self.last_status.get("target_a")
+        if action == "preview" and self.last_status.get("action") in inactive_actions:
+            data["target_a"] = 0
+            return data
         if target_a is not None:
             data["target_a"] = target_a
             return data
@@ -748,15 +758,23 @@ class WebRuntime:
         status["message"] = f"override manuale: Tesla impostata a {display_a} A"
 
     @staticmethod
-    def _wall_connector_charge_active(energy: dict) -> bool:
+    def _wall_connector_charge_active(energy: dict, *, useful_only: bool = False) -> bool:
         if not energy.get("tesla_connected"):
             return False
-        if bool(energy.get("wall_connector_contactor_closed")):
-            return True
         current_a = _as_float(energy.get("actual_current_a"))
         if current_a is None:
             current_a = _as_float(energy.get("tesla_current_a"))
         power_w = _as_float(energy.get("tesla_power_w"))
+        if useful_only:
+            return (
+                current_a is not None
+                and current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
+            ) or (
+                power_w is not None
+                and power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
+            )
+        if bool(energy.get("wall_connector_contactor_closed")):
+            return True
         return (
             (current_a is not None and current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A)
             or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
@@ -963,12 +981,18 @@ class WebRuntime:
                 tesla_power_w = wall_vitals.power_w
                 quota_resume_pending = bool(
                     getattr(self.controller, "_paused_for_power_quota", False)
+                    and (wall_vitals.vehicle_connected or wall_vitals.contactor_closed)
                 )
                 wall_charge_active = (
                     wall_vitals.contactor_closed
                     or wall_vitals.vehicle_current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A
                     or wall_vitals.power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W
                 )
+                if not solar_window_active:
+                    wall_charge_active = (
+                        wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
+                        or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
+                    )
                 complete_ble_standby = self._complete_ble_standby_active(wall_vitals)
                 if complete_ble_standby:
                     tesla_ble_control_required = False
@@ -1395,7 +1419,7 @@ class WebRuntime:
                 and not window.active
                 and self.hard.tesla_data_source == "wall-connector"
                 and (
-                    self._wall_connector_charge_active(energy)
+                    self._wall_connector_charge_active(energy, useful_only=True)
                     or self._wall_connector_quota_resume_pending(energy)
                 )
             )
@@ -1998,22 +2022,20 @@ class WebRuntime:
         tesla_state_text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
         return "outside-window" in tesla_state_text or "fuori dalla finestra" in tesla_state_text
 
-    @staticmethod
-    def _target_row_tesla_active(row: dict) -> bool:
-        current_a = _as_float(row.get("tesla_current_a"))
-        power_w = _as_float(row.get("tesla_power_w"))
-        return (
-            (current_a is not None and current_a >= WALL_CONNECTOR_CHARGE_MIN_CURRENT_A)
-            or (power_w is not None and power_w >= WALL_CONNECTOR_CHARGE_MIN_POWER_W)
-        )
-
     def _target_zero_marker(self, row: dict) -> bool:
         # Controller non attivo (disabilitato, Tesla offline, oppure fuori
         # finestra senza ricarica reale): nessun target da mostrare.
         # Ritorna 0 esplicito così la linea scende a zero senza forward-fill.
         tesla_state_text = f"{row.get('action') or ''} {row.get('reason') or ''}".casefold()
+        action = str(row.get("action") or "").casefold()
+        if action in {
+            "outside-window",
+            "wall-connector-monitor",
+            "tesla-ble-control-offline",
+        }:
+            return True
         if self._target_outside_window_marker(row):
-            return not self._target_row_tesla_active(row)
+            return True
         return any(
             marker in tesla_state_text
             for marker in (
@@ -2037,8 +2059,6 @@ class WebRuntime:
             return 0.0
         target_a = row.get("tesla_target_a")
         if target_a is None:
-            if self._target_outside_window_marker(row) and self._target_row_tesla_active(row):
-                return float(self.current.min_charge_amps)
             if self._tesla_power_is_zero(row):
                 return 0.0
             return None
