@@ -1255,14 +1255,15 @@
           return {
             label: item.name,
             data: values,
+            stack: "appliances",
             borderColor: "#94a3b8",
-            backgroundColor: "transparent",
+            backgroundColor: withAlpha("#94a3b8", 0.22),
             borderWidth: 2,
             borderDash: [5, 4],
             pointRadius: 0,
             pointHoverRadius: 4,
             tension: 0,
-            fill: false,
+            fill: true,
             spanGaps: true
           };
         }),
