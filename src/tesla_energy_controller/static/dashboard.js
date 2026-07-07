@@ -854,6 +854,12 @@
       plugins: {
         legend: {
           position: "bottom",
+          onClick: function (event, legendItem, legend) {
+            var chart = legend.chart;
+            var dataset = chart.data.datasets[legendItem.datasetIndex];
+            if (dataset && dataset.lockedLegend) return;
+            Chart.defaults.plugins.legend.onClick(event, legendItem, legend);
+          },
           labels: {
             color: css("--muted", "#64748b"),
             usePointStyle: true,
@@ -1255,15 +1261,16 @@
           return {
             label: item.name,
             data: values,
-            stack: "appliances",
+            stack: "total",
+            lockedLegend: true,
             borderColor: "#94a3b8",
-            backgroundColor: withAlpha("#94a3b8", 0.22),
+            backgroundColor: "transparent",
             borderWidth: 2,
             borderDash: [5, 4],
             pointRadius: 0,
             pointHoverRadius: 4,
             tension: 0,
-            fill: true,
+            fill: false,
             spanGaps: true
           };
         }),

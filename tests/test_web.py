@@ -3210,6 +3210,13 @@ def test_dashboard_switches_between_main_and_alfa_interface(monkeypatch, tmp_pat
         ]
 
 
+def test_appliance_total_series_stays_visible_as_reference_line():
+    script = Path("src/tesla_energy_controller/static/dashboard.js").read_text()
+    assert "if (dataset && dataset.lockedLegend) return;" in script
+    assert 'stack: "total"' in script
+    assert "lockedLegend: true" in script
+
+
 def test_manual_mode_badge_only_shows_for_manual_override(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]
