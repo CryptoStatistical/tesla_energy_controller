@@ -306,6 +306,8 @@ class WebRuntime:
         self._last_appliances: list[dict] = []
         self._vimar_retry_after: datetime | None = None
         self._tesla_complete_ble_standby = False
+        self._wall_charge_session_active: bool | None = None
+        self._automatic_charge_start_active = False
         self.last_status: dict = (
             self._status_from_measurement(latest_measurement[0])
             if latest_measurement
@@ -744,6 +746,10 @@ class WebRuntime:
         return current_a
 
     def _annotate_manual_override_status(self, status: dict) -> None:
+        if status.get("automatic_charge_start"):
+            status["manual_override_active"] = False
+            status["manual_override_a"] = None
+            return
         override_a = self._manual_override_current_a(status)
         active = override_a is not None
         status["manual_override_active"] = active
@@ -831,6 +837,33 @@ class WebRuntime:
             self._tesla_complete_ble_standby = True
         elif getattr(car, "is_charging", False):
             self._tesla_complete_ble_standby = False
+
+    def _track_wall_charge_session(self, wall_vitals) -> None:
+        charging = bool(
+            wall_vitals.contactor_closed
+            and (
+                wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
+                or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
+            )
+        )
+        inactive = not wall_vitals.vehicle_connected or not wall_vitals.contactor_closed
+        if self._wall_charge_session_active is None:
+            self._wall_charge_session_active = charging if not inactive else False
+            return
+        if charging:
+            if not self._wall_charge_session_active:
+                self._automatic_charge_start_active = True
+            self._wall_charge_session_active = True
+        elif inactive:
+            self._wall_charge_session_active = False
+            self._automatic_charge_start_active = False
+
+    def _refresh_automatic_charge_start(self, car) -> None:
+        if not self._automatic_charge_start_active or car is None:
+            return
+        threshold = float(self.current.manual_override_amps) - MANUAL_OVERRIDE_TOLERANCE_A
+        if max(float(car.current_request_a), float(car.actual_current_a)) < threshold:
+            self._automatic_charge_start_active = False
 
     def _alfa_meter_measurement(self, primary):
         if primary.source == "alfa-modbus":
@@ -976,6 +1009,7 @@ class WebRuntime:
                 tesla_power_source = "wall-connector-unavailable"
             else:
                 tesla_power_w = wall_vitals.power_w
+                self._track_wall_charge_session(wall_vitals)
                 wall_charge_active = (
                     wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
                     or wall_vitals.power_w >= TESLA_COMPLETE_BLE_RESUME_POWER_W
@@ -1035,6 +1069,7 @@ class WebRuntime:
                         tesla_ble_control_state = "connected"
                         tesla_ble_control_message = "Bluetooth pronto per controllo"
                         self._remember_ble_charge_state(car)
+                        self._refresh_automatic_charge_start(car)
         else:
             # La lettura della Tesla via BLE è opzionale: se l'auto è addormentata o
             # fuori portata mostriamo comunque l'energia, senza i dati dell'auto.
@@ -1191,6 +1226,7 @@ class WebRuntime:
                 wall_vitals.contactor_closed if wall_vitals is not None else None
             ),
             "wall_connector_evse_state": wall_vitals.evse_state if wall_vitals is not None else None,
+            "automatic_charge_start": self._automatic_charge_start_active,
         }
         return car, measurement, energy, appliances
 
@@ -1471,6 +1507,7 @@ class WebRuntime:
                             ),
                             power_quota_limit_w=effective_power_quota_w,
                             power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
+                            ignore_manual_override=self._automatic_charge_start_active,
                         )
                     state = "ok"
                     message = decision.reason

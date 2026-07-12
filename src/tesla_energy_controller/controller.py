@@ -559,6 +559,7 @@ class EnergyController:
         projected_quarter_hour_import_w: float | None = None,
         power_quota_limit_w: float | None = None,
         power_quota_hysteresis_w: float = 0.0,
+        ignore_manual_override: bool = False,
     ) -> Decision:
         legacy_mode = (
             non_tesla_power_w is None
@@ -594,7 +595,7 @@ class EnergyController:
             return self._not_charging_decision(car)
         override_a = (
             _manual_override_current_a(car, manual_override_amps)
-            if manual_override_amps is not None
+            if manual_override_amps is not None and not ignore_manual_override
             else None
         )
         if override_a is not None:

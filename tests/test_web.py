@@ -2191,6 +2191,128 @@ def test_wall_connector_active_charge_uses_ble_for_control(monkeypatch, tmp_path
     assert status["tesla_ble_control_state"] == "connected"
 
 
+def test_new_wall_charge_replaces_previous_override_with_automatic_target(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        alfa_grid_reading_enabled=False,
+        extra_grid_power_w=2000,
+        min_charge_amps=5,
+        manual_override_amps=16,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=0,
+        solar_power_w=6000,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Charging",
+        current_request_a=16,
+        current_request_max_a=16,
+        actual_current_a=16,
+        phases=3,
+        voltage_v=230,
+        charger_power_kw=11.04,
+    )
+    wall = {"connected": True, "contactor": False, "current_a": 0.0, "power_w": 0.0}
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=wall["connected"],
+                contactor_closed=wall["contactor"],
+                grid_v=230,
+                vehicle_current_a=wall["current_a"],
+                phase_currents_a=(wall["current_a"],) * 3,
+                power_w=wall["power_w"],
+                evse_state=11,
+            )
+
+    runtime.wall_connector = Wall()
+    inactive = runtime.run_cycle(
+        datetime(2026, 7, 12, 12, tzinfo=ZoneInfo("Europe/Rome")),
+        control=False,
+        persist=False,
+    )
+    wall.update({"contactor": True, "current_a": 16.0, "power_w": 11040.0})
+    started = runtime.run_cycle(
+        datetime(2026, 7, 12, 12, 5, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+
+    assert inactive["wall_connector_contactor_closed"] is False
+    assert inactive["automatic_charge_start"] is False
+    assert started["automatic_charge_start"] is True
+    assert started["manual_override_active"] is False
+    assert started["manual_override_a"] is None
+    assert started["action"] == "dry-run"
+    assert started["target_a"] == 11
+
+
+def test_first_active_wall_snapshot_keeps_existing_manual_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        schedule_mode="fixed",
+        fixed_start_time="00:00",
+        fixed_end_time="23:59",
+        manual_override_amps=16,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=3000,
+        solar_power_w=6000,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Charging",
+        current_request_a=16,
+        current_request_max_a=16,
+        actual_current_a=16,
+        phases=3,
+        voltage_v=230,
+        charger_power_kw=11.04,
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=True,
+                grid_v=230,
+                vehicle_current_a=16,
+                phase_currents_a=(16, 16, 16),
+                power_w=11040,
+                evse_state=11,
+            )
+
+    runtime.wall_connector = Wall()
+    status = runtime.run_cycle(
+        datetime(2026, 7, 12, 12, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+
+    assert status["automatic_charge_start"] is False
+    assert status["manual_override_active"] is True
+    assert status["action"] == "manual-override"
+    assert status["target_a"] == 16
+
+
 def test_wall_connector_preview_marks_manual_override_from_actual_current(
     monkeypatch,
     tmp_path,
