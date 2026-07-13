@@ -789,9 +789,28 @@ class WebRuntime:
     def _wall_connector_quota_resume_pending(self, energy: dict) -> bool:
         if not getattr(self.controller, "_paused_for_power_quota", False):
             return False
-        if energy.get("tesla_ble_control_state") == "standby":
+        return bool(energy.get("tesla_ble_control_required")) or (
+            self._wall_connector_charge_active(energy, useful_only=True)
+        )
+
+    def _cached_power_quota_resume_ready(self) -> bool:
+        if not getattr(self.controller, "_paused_for_power_quota", False):
             return False
-        return self._wall_connector_charge_active(energy, useful_only=True)
+        projected = _as_float(self.last_status.get("projected_quarter_hour_import_w"))
+        if projected is None:
+            return False
+        limit = self.current.power_quota_target_w
+        voltage = (
+            _as_float(self.last_status.get("voltage_v"))
+            or self.hard.nominal_phase_voltage_v
+        )
+        phases = max(int(self.current.expected_phases or 1), 1)
+        export_w = max(_as_float(self.last_status.get("export_power_w")) or 0.0, 0.0)
+        restart_room_w = max(
+            limit - self.current.power_quota_hysteresis_w - projected + export_w,
+            0.0,
+        )
+        return restart_room_w >= voltage * phases
 
     def _minimum_preview_target(self, energy: dict, *, check_restart_room: bool) -> int:
         upper = min(
@@ -936,6 +955,7 @@ class WebRuntime:
         stamp: str,
         *,
         wants_ble_control: bool = True,
+        allow_quota_resume_probe: bool = True,
         solar_window_active: bool = True,
         solaredge_modbus_awake: bool | None = None,
     ) -> tuple:
@@ -1016,10 +1036,16 @@ class WebRuntime:
                 )
                 quota_resume_pending = bool(
                     getattr(self.controller, "_paused_for_power_quota", False)
-                    and wall_charge_active
+                    and (
+                        wall_charge_active
+                        or (
+                            allow_quota_resume_probe
+                            and self._cached_power_quota_resume_ready()
+                        )
+                    )
                 )
                 complete_ble_standby = self._complete_ble_standby_active(wall_vitals)
-                if complete_ble_standby:
+                if complete_ble_standby and not quota_resume_pending:
                     tesla_ble_control_required = False
                     tesla_ble_control_state = "standby"
                     tesla_ble_control_message = "Bluetooth in standby dopo carica completa"
@@ -1307,6 +1333,7 @@ class WebRuntime:
                     stamp,
                     wants_ble_control=self.current.enabled
                     and (window.active or self.hard.tesla_data_source == "wall-connector"),
+                    allow_quota_resume_probe=control,
                     solar_window_active=window.active,
                     solaredge_modbus_awake=solaredge_modbus_awake,
                 )
