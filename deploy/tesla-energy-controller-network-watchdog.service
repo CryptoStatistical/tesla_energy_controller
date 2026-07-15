@@ -1,0 +1,9 @@
+[Unit]
+Description=Tesla Energy Controller Wi-Fi recovery watchdog
+Wants=NetworkManager.service
+After=NetworkManager.service network-online.target tesla-energy-controller-network.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/tesla-energy-controller-network
+ExecStart=/usr/local/sbin/tesla-energy-controller-network-watchdog

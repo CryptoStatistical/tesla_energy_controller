@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Tesla Energy Controller Wi-Fi recovery watchdog
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=tesla-energy-controller-network-watchdog.service
+
+[Install]
+WantedBy=timers.target

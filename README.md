@@ -170,6 +170,13 @@ Configurazione predefinita in `/etc/default/tesla-energy-controller-network`:
 
 ```dotenv
 NETWORK_DEVICE=wlan0
+WIFI_RESILIENCE_ENABLED=true
+WIFI_CONNECTION_NAME=
+WIFI_GATEWAY=192.168.1.1
+WIFI_FAILURE_THRESHOLD=3
+WIFI_PING_COUNT=2
+WIFI_PING_TIMEOUT_SECONDS=2
+WIFI_RECOVERY_WAIT_SECONDS=20
 STOREDGE_ROUTE_ENABLED=true
 STOREDGE_ROUTE_CIDR=192.168.20.0/24
 STOREDGE_ROUTE_GATEWAY=192.168.1.1
@@ -188,6 +195,22 @@ ip neigh replace 192.168.1.50 lladdr aa:bb:cc:dd:ee:ff dev wlan0 nud permanent
 
 La rotta serve a raggiungere lo StorEdge in una subnet separata; il neighbor statico ALFA compensa gli AP
 non in mesh, dove ARP/broadcast tra client non attraversa correttamente i segmenti Wi-Fi.
+
+Lo stesso bootstrap rende resiliente la Wi-Fi della Raspberry: abilita la riconnessione illimitata
+di NetworkManager e disattiva il power saving dell'interfaccia. Il timer
+`tesla-energy-controller-network-watchdog.timer` verifica il gateway ogni minuto; dopo tre cicli
+falliti forza la riconnessione e riapplica rotta StorEdge e neighbor ALFA. Il profilo Wi-Fi viene
+rilevato automaticamente, oppure si può indicare con `WIFI_CONNECTION_NAME`. Il deploy abilita
+anche il journal persistente, limitato a 64 MB e 14 giorni, per conservare la diagnostica dopo un
+riavvio.
+
+Verifica operativa:
+
+```bash
+systemctl status tesla-energy-controller-network-watchdog.timer
+journalctl -u tesla-energy-controller-network-watchdog.service
+sudo /usr/local/sbin/tesla-energy-controller-network status
+```
 
 ### ALFA Modbus su contatore Enel
 

@@ -240,10 +240,19 @@ scripts/deploy_raspberry_pi.sh user@raspberry-pi
 The deploy script runs local tests and lint, syncs code, preserves `.env`, `.secrets`, `data`, and
 `.venv`, installs systemd units, and restarts the web and Tuya services.
 
+The Raspberry network bootstrap also configures unlimited NetworkManager reconnect attempts and
+disables Wi-Fi power saving. `tesla-energy-controller-network-watchdog.timer` checks the gateway
+once per minute; after three consecutive failures it reconnects Wi-Fi and reapplies the StorEdge
+route and ALFA static neighbor. These settings live in
+`/etc/default/tesla-energy-controller-network`; `WIFI_CONNECTION_NAME` may be left empty for
+automatic profile detection. Deploys also enable a persistent journal capped at 64 MB and 14 days,
+so pre-reboot diagnostics remain available.
+
 Useful checks on the Raspberry Pi:
 
 ```bash
 systemctl status tesla-energy-controller.service tesla-energy-controller-tuya.service
+systemctl status tesla-energy-controller-network-watchdog.timer
 journalctl -u tesla-energy-controller.service -f
 curl -fsS http://127.0.0.1:8080/health
 ```

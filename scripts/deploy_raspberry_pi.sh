@@ -42,11 +42,23 @@ rsync -a --delete \
 install -m 0644 \"$app_dir/deploy/tesla-energy-controller.service\" /etc/systemd/system/tesla-energy-controller.service
 install -m 0644 \"$app_dir/deploy/tesla-energy-controller-tuya.service\" /etc/systemd/system/tesla-energy-controller-tuya.service
 install -m 0644 \"$app_dir/deploy/tesla-energy-controller-network.service\" /etc/systemd/system/tesla-energy-controller-network.service
+install -m 0644 \"$app_dir/deploy/tesla-energy-controller-network-watchdog.service\" /etc/systemd/system/tesla-energy-controller-network-watchdog.service
+install -m 0644 \"$app_dir/deploy/tesla-energy-controller-network-watchdog.timer\" /etc/systemd/system/tesla-energy-controller-network-watchdog.timer
 install -m 0755 \"$app_dir/scripts/bootstrap_raspberry_network.sh\" /usr/local/sbin/tesla-energy-controller-network
+install -m 0755 \"$app_dir/scripts/raspberry_network_watchdog.sh\" /usr/local/sbin/tesla-energy-controller-network-watchdog
+install -d -m 0755 /etc/systemd/journald.conf.d /var/log/journal
+install -m 0644 \"$app_dir/deploy/tesla-energy-controller-journald.conf\" /etc/systemd/journald.conf.d/tesla-energy-controller.conf
 if [ ! -f /etc/default/tesla-energy-controller-network ]; then
   install -m 0644 /dev/null /etc/default/tesla-energy-controller-network
   cat >/etc/default/tesla-energy-controller-network <<EOF
 NETWORK_DEVICE=wlan0
+WIFI_RESILIENCE_ENABLED=true
+WIFI_CONNECTION_NAME=
+WIFI_GATEWAY=192.168.1.1
+WIFI_FAILURE_THRESHOLD=3
+WIFI_PING_COUNT=2
+WIFI_PING_TIMEOUT_SECONDS=2
+WIFI_RECOVERY_WAIT_SECONDS=20
 STOREDGE_ROUTE_ENABLED=true
 STOREDGE_ROUTE_CIDR=192.168.2.0/24
 STOREDGE_ROUTE_GATEWAY=192.168.1.61
@@ -56,6 +68,13 @@ ALFA_NEIGHBOR_MAC=34:ab:95:5a:be:68
 ALFA_MODBUS_PORT=502
 EOF
 fi
+grep -q '^WIFI_RESILIENCE_ENABLED=' /etc/default/tesla-energy-controller-network || echo 'WIFI_RESILIENCE_ENABLED=true' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_CONNECTION_NAME=' /etc/default/tesla-energy-controller-network || echo 'WIFI_CONNECTION_NAME=' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_GATEWAY=' /etc/default/tesla-energy-controller-network || echo 'WIFI_GATEWAY=192.168.1.1' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_FAILURE_THRESHOLD=' /etc/default/tesla-energy-controller-network || echo 'WIFI_FAILURE_THRESHOLD=3' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_PING_COUNT=' /etc/default/tesla-energy-controller-network || echo 'WIFI_PING_COUNT=2' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_PING_TIMEOUT_SECONDS=' /etc/default/tesla-energy-controller-network || echo 'WIFI_PING_TIMEOUT_SECONDS=2' >>/etc/default/tesla-energy-controller-network
+grep -q '^WIFI_RECOVERY_WAIT_SECONDS=' /etc/default/tesla-energy-controller-network || echo 'WIFI_RECOVERY_WAIT_SECONDS=20' >>/etc/default/tesla-energy-controller-network
 systemctl disable --now tesla-energy-controller-route.service alfa-static-neighbor.service 2>/dev/null || true
 rm -f \
   /etc/systemd/system/tesla-energy-controller-route.service \
@@ -69,15 +88,19 @@ if [ ! -x \"$app_dir/.venv/bin/python\" ]; then
 fi
 sudo -u \"$service_user\" \"$app_dir/.venv/bin/python\" -m pip install -e \"$app_dir\"
 systemctl daemon-reload
-systemctl enable tesla-energy-controller-network.service tesla-energy-controller.service tesla-energy-controller-tuya.service
+systemd-tmpfiles --create --prefix /var/log/journal
+systemctl restart systemd-journald.service
+journalctl --flush
+systemctl enable tesla-energy-controller-network.service tesla-energy-controller-network-watchdog.timer tesla-energy-controller.service tesla-energy-controller-tuya.service
 systemctl restart tesla-energy-controller-network.service
+systemctl restart tesla-energy-controller-network-watchdog.timer
 systemctl restart tesla-energy-controller.service
 systemctl restart tesla-energy-controller-tuya.service
 rm -rf \"$stage\"
 '"
 
 echo "==> Remote status"
-ssh "$remote" "systemctl --no-pager --lines=0 status tesla-energy-controller-network.service tesla-energy-controller.service tesla-energy-controller-tuya.service"
+ssh "$remote" "systemctl --no-pager --lines=0 status tesla-energy-controller-network.service tesla-energy-controller-network-watchdog.timer tesla-energy-controller.service tesla-energy-controller-tuya.service"
 ssh "$remote" "for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS http://127.0.0.1:8080/health && exit 0; sleep 1; done; exit 1"
 echo
 echo "Deploy complete."

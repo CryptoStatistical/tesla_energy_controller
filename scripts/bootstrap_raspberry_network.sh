@@ -5,6 +5,9 @@ ACTION="${1:-apply}"
 
 NETWORK_DEVICE="${NETWORK_DEVICE:-wlan0}"
 
+WIFI_RESILIENCE_ENABLED="${WIFI_RESILIENCE_ENABLED:-true}"
+WIFI_CONNECTION_NAME="${WIFI_CONNECTION_NAME:-}"
+
 STOREDGE_ROUTE_ENABLED="${STOREDGE_ROUTE_ENABLED:-true}"
 STOREDGE_ROUTE_CIDR="${STOREDGE_ROUTE_CIDR:-192.168.2.0/24}"
 STOREDGE_ROUTE_GATEWAY="${STOREDGE_ROUTE_GATEWAY:-192.168.1.61}"
@@ -19,8 +22,8 @@ log() {
 }
 
 enabled() {
-  case "${1,,}" in
-    1|true|yes|on) return 0 ;;
+  case "$1" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -36,8 +39,55 @@ wait_for_device() {
   return 1
 }
 
+active_wifi_connection() {
+  local connection
+
+  if [[ -n "$WIFI_CONNECTION_NAME" ]]; then
+    printf '%s\n' "$WIFI_CONNECTION_NAME"
+    return 0
+  fi
+
+  if ! command -v nmcli >/dev/null 2>&1; then
+    return 1
+  fi
+
+  connection="$(nmcli -g GENERAL.CONNECTION device show "$NETWORK_DEVICE" 2>/dev/null | head -n 1)"
+  if [[ -n "$connection" && "$connection" != "--" ]]; then
+    printf '%s\n' "$connection"
+    return 0
+  fi
+  return 1
+}
+
+apply_wifi_resilience() {
+  local connection=""
+
+  if ! enabled "$WIFI_RESILIENCE_ENABLED"; then
+    return 0
+  fi
+
+  if command -v nmcli >/dev/null 2>&1; then
+    connection="$(active_wifi_connection || true)"
+    if [[ -n "$connection" ]]; then
+      log "Configuro riconnessione Wi-Fi persistente sul profilo: $connection"
+      nmcli connection modify "$connection" \
+        connection.autoconnect yes \
+        connection.autoconnect-retries 0 \
+        802-11-wireless.powersave 2
+    else
+      log "Profilo NetworkManager di $NETWORK_DEVICE non individuato"
+    fi
+  fi
+
+  if command -v iw >/dev/null 2>&1; then
+    log "Disabilito il power saving Wi-Fi su $NETWORK_DEVICE"
+    iw dev "$NETWORK_DEVICE" set power_save off
+  fi
+}
+
 apply_network() {
   wait_for_device
+  apply_wifi_resilience
 
   if enabled "$STOREDGE_ROUTE_ENABLED"; then
     log "Installo rotta StorEdge: $STOREDGE_ROUTE_CIDR via $STOREDGE_ROUTE_GATEWAY dev $NETWORK_DEVICE"
@@ -61,6 +111,17 @@ remove_network() {
 }
 
 status_network() {
+  log "Wi-Fi:"
+  if command -v nmcli >/dev/null 2>&1; then
+    connection="$(active_wifi_connection || true)"
+    if [[ -n "$connection" ]]; then
+      nmcli -g connection.autoconnect,connection.autoconnect-retries,802-11-wireless.powersave \
+        connection show "$connection" || true
+    fi
+  fi
+  if command -v iw >/dev/null 2>&1; then
+    iw dev "$NETWORK_DEVICE" get power_save || true
+  fi
   log "Route StorEdge:"
   ip route show "$STOREDGE_ROUTE_CIDR" || true
   log "Neighbor ALFA:"
