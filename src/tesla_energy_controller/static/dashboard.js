@@ -845,7 +845,7 @@
     };
   }
 
-  function chartOptions(yTitle, stacked) {
+  function chartOptions(yTitle, stacked, legendClickAfter) {
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -859,6 +859,7 @@
             var dataset = chart.data.datasets[legendItem.datasetIndex];
             if (dataset && dataset.lockedLegend) return;
             Chart.defaults.plugins.legend.onClick(event, legendItem, legend);
+            if (legendClickAfter) legendClickAfter(chart, dataset, legendItem.datasetIndex);
           },
           labels: {
             color: css("--muted", "#64748b"),
@@ -916,6 +917,28 @@
     var hasLoaded = false;
     var activeRequest = null;
     var loadTimer = null;
+    var hiddenLegendLabels = Object.create(null);
+    var legendStorageKey = opts.persistLegend ? "tesla-energy:hidden-legend:" + opts.cardId : null;
+
+    function loadLegendChoices() {
+      if (!legendStorageKey || !window.sessionStorage) return;
+      try {
+        (JSON.parse(window.sessionStorage.getItem(legendStorageKey) || "[]") || []).forEach(function (label) {
+          hiddenLegendLabels[label] = true;
+        });
+      } catch (error) {
+        hiddenLegendLabels = Object.create(null);
+      }
+    }
+
+    function saveLegendChoices() {
+      if (!legendStorageKey || !window.sessionStorage) return;
+      try {
+        window.sessionStorage.setItem(legendStorageKey, JSON.stringify(Object.keys(hiddenLegendLabels)));
+      } catch (error) {
+        // sessionStorage puo' essere disabilitato: in quel caso resta la memoria in pagina.
+      }
+    }
 
     function selectedIndex() {
       if (!slider) return -1;
@@ -929,21 +952,59 @@
       if (nextDayButton) nextDayButton.disabled = disabled || index >= days.length - 1;
     }
 
+    function rememberLegendChoice(chartRef, datasetRef, datasetIndex) {
+      if (!opts.persistLegend || !datasetRef || datasetRef.lockedLegend) return;
+      if (chartRef.isDatasetVisible(datasetIndex)) {
+        delete hiddenLegendLabels[datasetRef.label];
+      } else {
+        hiddenLegendLabels[datasetRef.label] = true;
+      }
+      saveLegendChoices();
+    }
+
+    function applyLegendChoicesToDatasets(datasets) {
+      if (!opts.persistLegend) return;
+      datasets.forEach(function (item) {
+        if (item.lockedLegend) {
+          item.hidden = false;
+          return;
+        }
+        item.hidden = Boolean(hiddenLegendLabels[item.label]);
+      });
+    }
+
+    function syncLegendChoices() {
+      if (!opts.persistLegend || !chart) return;
+      chart.data.datasets.forEach(function (item, index) {
+        if (item.lockedLegend) {
+          item.hidden = false;
+          chart.setDatasetVisibility(index, true);
+          return;
+        }
+        item.hidden = Boolean(hiddenLegendLabels[item.label]);
+        chart.setDatasetVisibility(index, !item.hidden);
+      });
+    }
+
     function paint(data) {
       var built = opts.transform(data);
+      applyLegendChoicesToDatasets(built.datasets);
       if (empty) empty.hidden = !built.isEmpty;
       if (dayCap) dayCap.textContent = data.day || "-";
       if (dayOut) dayOut.textContent = data.day || "-";
       if (chart) {
         chart.data.labels = built.labels;
         chart.data.datasets = built.datasets;
+        syncLegendChoices();
         chart.update("none");
       } else {
         chart = new Chart(canvas.getContext("2d"), {
           type: "line",
           data: { labels: built.labels, datasets: built.datasets },
-          options: chartOptions(opts.yTitle, opts.stacked)
+          options: chartOptions(opts.yTitle, opts.stacked, rememberLegendChoice)
         });
+        syncLegendChoices();
+        chart.update("none");
       }
       if (opts.after) opts.after(data);
     }
@@ -1029,6 +1090,7 @@
     });
     updateDayButtons();
 
+    loadLegendChoices();
     if (opts.autoload !== false) load(null);
     return {
       load: function () {
@@ -1232,6 +1294,7 @@
     yTitle: "Watt",
     stacked: true,
     autoload: false,
+    persistLegend: true,
     transform: function (data) {
       var series = data.series || [];
       var applianceIndex = 0;

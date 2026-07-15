@@ -3471,6 +3471,11 @@ def test_appliance_total_series_stays_visible_as_reference_line():
     assert "if (dataset && dataset.lockedLegend) return;" in script
     assert 'stack: "total"' in script
     assert "lockedLegend: true" in script
+    assert "persistLegend: true" in script
+    assert "hiddenLegendLabels[datasetRef.label] = true;" in script
+    assert "window.sessionStorage.setItem(legendStorageKey" in script
+    assert "item.hidden = Boolean(hiddenLegendLabels[item.label]);" in script
+    assert "chart.setDatasetVisibility(index, !item.hidden);" in script
 
 
 def test_manual_mode_badge_only_shows_for_manual_override(monkeypatch, tmp_path):

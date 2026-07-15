@@ -83,6 +83,39 @@ if [[ -f "$data_conf" ]] && ! grep -Eq '^[[:space:]]*include=/etc/rpimonitor/tem
   printf '\n%s\n' 'include=/etc/rpimonitor/template/temperature.conf' >>"$data_conf"
 fi
 
+sdcard_conf=/etc/rpimonitor/template/sdcard.conf
+if [[ -f "$sdcard_conf" ]]; then
+  boot_mount=
+  for candidate in /boot/firmware /boot; do
+    if [[ -d "$candidate" ]] && mountpoint -q "$candidate"; then
+      boot_mount="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$boot_mount" ]]; then
+    echo "==> Configurazione filesystem boot RPi-Monitor su $boot_mount"
+    boot_regexp="${boot_mount//\//\\/}"
+    tmp="$(mktemp)"
+    awk -v boot="$boot_mount" -v boot_re="$boot_regexp" '
+      /^static[.]2[.]source=/ { print "static.2.source=df -P " boot; next }
+      /^static[.]2[.]regexp=/ { print "static.2.regexp=\\S+\\s+(\\d+).*" boot_re "$"; next }
+      /^dynamic[.]2[.]source=/ { print "dynamic.2.source=df -P " boot; next }
+      /^dynamic[.]2[.]regexp=/ { print "dynamic.2.regexp=\\S+\\s+\\d+\\s+(\\d+).*" boot_re "$"; next }
+      {
+        gsub(/<b>\/boot[^<]*<\/b>/, "<b>" boot "</b>")
+        gsub(/Size of \/boot[^ ]* [(]MB[)]/, "Size of " boot " (MB)")
+        gsub(/Used on \/boot[^ ]* [(]MB[)]/, "Used on " boot " (MB)")
+        gsub(/Disks - boot/, "Disks - " boot)
+        print
+      }
+    ' "$sdcard_conf" >"$tmp"
+    cat "$tmp" >"$sdcard_conf"
+    rm -f "$tmp"
+    chmod 0644 "$sdcard_conf"
+  fi
+fi
+
 cpu_usage_helper=/usr/local/bin/rpimonitor-cpu-usage
 cat >"$cpu_usage_helper" <<'CPU_USAGE_SCRIPT'
 #!/bin/sh

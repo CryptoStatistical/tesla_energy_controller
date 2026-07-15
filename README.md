@@ -546,7 +546,8 @@ script applica il workaround sul post-process del sensore e verifica che `temper
 incluso. Lo script sostituisce inoltre il grafico CPU basato sul load average con un grafico
 `CPU Usage` in percentuale e configura il template rete sull'interfaccia della route predefinita
 (ad esempio `wlan0` sui Raspberry collegati in Wi-Fi), mostrando sia i byte totali sia il traffico
-istantaneo in upload/download.
+istantaneo in upload/download. Sulle immagini Raspberry Pi OS recenti corregge anche il monitor
+del filesystem boot da `/boot` a `/boot/firmware`, evitando il valore `NaN%`.
 
 ```bash
 scripts/install_rpimonitor_raspberry_pi.sh utente@raspberry-pi 8889
