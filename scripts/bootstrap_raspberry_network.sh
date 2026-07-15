@@ -85,10 +85,7 @@ apply_wifi_resilience() {
   fi
 }
 
-apply_network() {
-  wait_for_device
-  apply_wifi_resilience
-
+apply_network_rules() {
   if enabled "$STOREDGE_ROUTE_ENABLED"; then
     log "Installo rotta StorEdge: $STOREDGE_ROUTE_CIDR via $STOREDGE_ROUTE_GATEWAY dev $NETWORK_DEVICE"
     ip route replace "$STOREDGE_ROUTE_CIDR" via "$STOREDGE_ROUTE_GATEWAY" dev "$NETWORK_DEVICE"
@@ -98,6 +95,17 @@ apply_network() {
     log "Installo neighbor ALFA: $ALFA_NEIGHBOR_IP -> $ALFA_NEIGHBOR_MAC dev $NETWORK_DEVICE"
     ip neigh replace "$ALFA_NEIGHBOR_IP" lladdr "$ALFA_NEIGHBOR_MAC" dev "$NETWORK_DEVICE" nud permanent
   fi
+}
+
+apply_network() {
+  wait_for_device
+  apply_wifi_resilience
+  apply_network_rules
+}
+
+restore_network_rules() {
+  wait_for_device
+  apply_network_rules
 }
 
 remove_network() {
@@ -142,8 +150,12 @@ case "$ACTION" in
   status)
     status_network
     ;;
+  restore)
+    restore_network_rules
+    status_network
+    ;;
   *)
-    log "Uso: $0 [apply|remove|status]"
+    log "Uso: $0 [apply|remove|restore|status]"
     exit 2
     ;;
 esac

@@ -46,6 +46,8 @@ install -m 0644 \"$app_dir/deploy/tesla-energy-controller-network-watchdog.servi
 install -m 0644 \"$app_dir/deploy/tesla-energy-controller-network-watchdog.timer\" /etc/systemd/system/tesla-energy-controller-network-watchdog.timer
 install -m 0755 \"$app_dir/scripts/bootstrap_raspberry_network.sh\" /usr/local/sbin/tesla-energy-controller-network
 install -m 0755 \"$app_dir/scripts/raspberry_network_watchdog.sh\" /usr/local/sbin/tesla-energy-controller-network-watchdog
+install -d -m 0755 /etc/NetworkManager/dispatcher.d
+install -m 0755 \"$app_dir/scripts/networkmanager_dispatcher.sh\" /etc/NetworkManager/dispatcher.d/90-tesla-energy-controller-network
 install -d -m 0755 /etc/systemd/journald.conf.d /var/log/journal
 install -m 0644 \"$app_dir/deploy/tesla-energy-controller-journald.conf\" /etc/systemd/journald.conf.d/tesla-energy-controller.conf
 if [ ! -f /etc/default/tesla-energy-controller-network ]; then

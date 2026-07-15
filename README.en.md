@@ -245,8 +245,9 @@ disables Wi-Fi power saving. `tesla-energy-controller-network-watchdog.timer` ch
 once per minute; after three consecutive failures it reconnects Wi-Fi and reapplies the StorEdge
 route and ALFA static neighbor. These settings live in
 `/etc/default/tesla-energy-controller-network`; `WIFI_CONNECTION_NAME` may be left empty for
-automatic profile detection. Deploys also enable a persistent journal capped at 64 MB and 14 days,
-so pre-reboot diagnostics remain available.
+automatic profile detection. A NetworkManager dispatcher immediately restores both rules after
+each reconnect or DHCP renewal. Deploys also enable a persistent journal capped at 64 MB and 14
+days, so pre-reboot diagnostics remain available.
 
 Useful checks on the Raspberry Pi:
 

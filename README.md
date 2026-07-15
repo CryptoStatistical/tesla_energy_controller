@@ -201,8 +201,9 @@ di NetworkManager e disattiva il power saving dell'interfaccia. Il timer
 `tesla-energy-controller-network-watchdog.timer` verifica il gateway ogni minuto; dopo tre cicli
 falliti forza la riconnessione e riapplica rotta StorEdge e neighbor ALFA. Il profilo Wi-Fi viene
 rilevato automaticamente, oppure si può indicare con `WIFI_CONNECTION_NAME`. Il deploy abilita
-anche il journal persistente, limitato a 64 MB e 14 giorni, per conservare la diagnostica dopo un
-riavvio.
+inoltre un dispatcher NetworkManager che ripristina immediatamente le regole a ogni riconnessione
+o rinnovo DHCP e il journal persistente, limitato a 64 MB e 14 giorni, per conservare dopo un
+riavvio la diagnostica precedente.
 
 Verifica operativa:
 

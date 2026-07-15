@@ -40,6 +40,7 @@ cp scripts/generate_tesla_keys.sh \
   scripts/build_tesla_control_arm64.sh \
   scripts/provision_vimar_raspberry_pi.sh \
   scripts/bootstrap_raspberry_network.sh \
+  scripts/networkmanager_dispatcher.sh \
   scripts/raspberry_network_watchdog.sh \
   "$root/scripts/"
 
@@ -107,6 +108,9 @@ install -m 0755 "$bundle_dir/scripts/bootstrap_raspberry_network.sh" \
   /usr/local/sbin/tesla-energy-controller-network
 install -m 0755 "$bundle_dir/scripts/raspberry_network_watchdog.sh" \
   /usr/local/sbin/tesla-energy-controller-network-watchdog
+install -d -m 0755 /etc/NetworkManager/dispatcher.d
+install -m 0755 "$bundle_dir/scripts/networkmanager_dispatcher.sh" \
+  /etc/NetworkManager/dispatcher.d/90-tesla-energy-controller-network
 install -d -m 0755 /etc/systemd/journald.conf.d /var/log/journal
 install -m 0644 "$bundle_dir/deploy/tesla-energy-controller-journald.conf" \
   /etc/systemd/journald.conf.d/tesla-energy-controller.conf
