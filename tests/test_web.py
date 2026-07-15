@@ -261,6 +261,7 @@ def test_viewer_can_change_password_but_not_see_admin_panels(monkeypatch, tmp_pa
         assert 'data-tab="user"' in page
         assert 'data-tab="settings"' not in page
         assert 'data-tab="log"' not in page
+        assert 'data-tab="diagnostics"' not in page
         assert 'data-tab="backup"' not in page
         assert "Gestione utenti" not in page
         assert "Cambia password" in page
@@ -269,6 +270,7 @@ def test_viewer_can_change_password_but_not_see_admin_panels(monkeypatch, tmp_pa
         assert runtime_payload["can_configure"] is False
         assert "users" not in runtime_payload
         assert "error_events" not in runtime_payload
+        assert client.get("/api/diagnostics").status_code == 403
 
         denied = client.post(
             "/settings",
@@ -283,7 +285,6 @@ def test_viewer_can_change_password_but_not_see_admin_panels(monkeypatch, tmp_pa
             headers={"Accept": "application/json", "X-Requested-With": "fetch"},
         )
         assert denied_backup.status_code == 403
-
         denied_import = client.post(
             "/backup/import",
             data={"csrf": token, "backup_file": (BytesIO(b"not a zip"), "backup.zip")},
@@ -305,6 +306,91 @@ def test_viewer_can_change_password_but_not_see_admin_panels(monkeypatch, tmp_pa
         assert changed.status_code == 200
         assert runtime.authenticate("viewer", "password-viewer-locale") is None
         assert runtime.authenticate("viewer", "password-viewer-nuova")
+
+
+def test_admin_diagnostics_are_non_invasive_and_cover_services(monkeypatch, tmp_path):
+    app, settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.hard = replace(
+        settings,
+        energy_source="solaredge-modbus",
+        tesla_transport="ble",
+        wall_connector_host="192.0.2.23",
+        solaredge_modbus_host="192.0.2.58",
+        solaredge_username="solar-user",
+        solaredge_password="solar-password",
+        solaredge_site_id=123,
+        alfa_modbus_host="192.0.2.169",
+        vimar_host="192.0.2.28",
+        tuya_enabled=True,
+    )
+    current = replace(
+        runtime.current,
+        solar_source="solaredge-modbus",
+        alfa_grid_reading_enabled=True,
+    )
+    runtime.store.hard_settings = runtime.hard
+    runtime.current = current
+    runtime.store.save(current)
+    runtime.last_status = {
+        "state": "ok",
+        "message": "misura completa",
+        "updated_at": datetime.now(ZoneInfo("Europe/Rome")).isoformat(),
+        "energy_source": "solaredge-modbus+alfa-modbus",
+        "solar_power_w": 5000,
+        "vimar_power_w": 900,
+        "import_power_w": 0,
+        "export_power_w": 1200,
+        "wall_connector_vehicle_connected": True,
+        "wall_connector_contactor_closed": False,
+        "tesla_ble_control_state": "not-needed",
+        "tesla_ble_control_message": "Bluetooth non necessario",
+    }
+    monkeypatch.setattr(
+        runtime,
+        "_systemd_diagnostic",
+        lambda _unit: ("ok", "Operativo", "unit attiva"),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_bluetooth_adapter_diagnostic",
+        lambda: ("ok", "Operativo", "adapter acceso"),
+    )
+    monkeypatch.setattr(
+        runtime.controller.grid,
+        "read",
+        lambda: (_ for _ in ()).throw(AssertionError("sonda Modbus non ammessa")),
+    )
+
+    with app.test_client() as client:
+        login(client)
+        page = client.get("/").get_data(as_text=True)
+        response = client.get("/api/diagnostics")
+
+    assert 'data-tab="diagnostics"' in page
+    assert response.status_code == 200
+    payload = response.get_json()
+    by_id = {item["id"]: item for item in payload["services"]}
+    assert by_id["web"]["state"] == "ok"
+    assert by_id["bluetooth"]["state"] == "ok"
+    assert by_id["tesla-ble"]["state"] == "standby"
+    assert by_id["wall-connector"]["state"] == "standby"
+    assert by_id["solaredge-modbus"]["state"] == "ok"
+    assert by_id["solaredge-web"]["state"] == "standby"
+    assert by_id["alfa-modbus"]["state"] == "ok"
+    assert by_id["vimar"]["state"] == "ok"
+    assert by_id["tuya"]["state"] == "ok"
+    assert by_id["sqlite"]["state"] == "ok"
+    assert "non vengono interrogati" in payload["note"]
+    assert settings.web_password not in response.get_data(as_text=True)
+
+    runtime.hard = replace(runtime.hard, tuya_enabled=False)
+    disabled_payload = runtime.diagnostics_payload()
+    disabled_tuya = next(
+        item for item in disabled_payload["services"] if item["id"] == "tuya"
+    )
+    assert disabled_tuya["state"] == "warning"
+    assert "TUYA_ENABLED=false" in disabled_tuya["detail"]
 
 
 def test_admin_can_create_user_with_generated_password(monkeypatch, tmp_path):

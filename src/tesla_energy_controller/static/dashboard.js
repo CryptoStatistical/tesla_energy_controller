@@ -111,6 +111,7 @@
     panels.forEach(function (panel) {
       panel.classList.toggle("is-active", panel.id === "tab-" + name);
     });
+    if (name === "diagnostics") loadDiagnostics(false);
     window.setTimeout(function () {
       if (lazyCharts[name]) lazyCharts[name].load();
       chartControllers.forEach(function (item) { item.resize(); });
@@ -711,6 +712,65 @@
   }
 
   var appRoot = document.getElementById("dashboardApp");
+  var diagnosticsLoaded = false;
+  var diagnosticsLoading = false;
+
+  function renderDiagnostics(payload) {
+    var grid = document.getElementById("diagnosticsGrid");
+    if (!grid || !payload || !Array.isArray(payload.services)) return;
+    grid.textContent = "";
+    payload.services.forEach(function (service) {
+      var card = document.createElement("article");
+      card.className = "service-card service-" + (service.state || "unknown");
+      card.setAttribute("data-service-id", service.id || "");
+      var heading = document.createElement("div");
+      heading.className = "service-heading";
+      var name = document.createElement("strong");
+      name.textContent = service.name || "Servizio";
+      var badge = document.createElement("span");
+      badge.className = "service-badge";
+      badge.textContent = service.label || service.state || "-";
+      heading.appendChild(name);
+      heading.appendChild(badge);
+      var detail = document.createElement("p");
+      detail.textContent = service.detail || "-";
+      card.appendChild(heading);
+      card.appendChild(detail);
+      grid.appendChild(card);
+    });
+    var checkedAt = document.getElementById("diagnosticsCheckedAt");
+    if (checkedAt) checkedAt.textContent = payload.generated_at || "mai";
+    var note = document.getElementById("diagnosticsNote");
+    if (note && payload.note) note.textContent = payload.note;
+    diagnosticsLoaded = true;
+  }
+
+  function loadDiagnostics(force) {
+    if (!appRoot || diagnosticsLoading || (diagnosticsLoaded && !force)) return;
+    var url = appRoot.getAttribute("data-diagnostics-url");
+    if (!url) return;
+    diagnosticsLoading = true;
+    var button = document.getElementById("diagnosticsRefresh");
+    if (button) button.disabled = true;
+    fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } })
+      .then(function (response) {
+        if (response.status === 401) { window.location.href = "/login"; return null; }
+        if (!response.ok) throw new Error("status " + response.status);
+        return response.json();
+      })
+      .then(function (payload) { if (payload) renderDiagnostics(payload); })
+      .catch(function () { showFeedback("Diagnostica non disponibile", "error"); })
+      .then(function () {
+        diagnosticsLoading = false;
+        if (button) button.disabled = false;
+      });
+  }
+
+  var diagnosticsRefresh = document.getElementById("diagnosticsRefresh");
+  if (diagnosticsRefresh) {
+    diagnosticsRefresh.addEventListener("click", function () { loadDiagnostics(true); });
+  }
+
   // data-refresh-ms riflette il campionamento storico/decisionale (tipicamente 300s).
   // La UI interroga la cache ogni 30s: i valori mostrati sono gia' mediati lato
   // backend e non creano nuovi campioni SQLite.

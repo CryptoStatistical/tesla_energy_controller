@@ -27,6 +27,7 @@
     <button class="tab-btn" type="button" data-tab="user" role="tab" aria-selected="false">User</button>
     {% if can_configure %}
       <button class="tab-btn" type="button" data-tab="log" role="tab" aria-selected="false">Log</button>
+      <button class="tab-btn" type="button" data-tab="diagnostics" role="tab" aria-selected="false">Diagnostica</button>
       <button class="tab-btn" type="button" data-tab="backup" role="tab" aria-selected="false">Backup</button>
       <button class="tab-btn" type="button" data-tab="settings" role="tab" aria-selected="false">Impostazioni</button>
     {% endif %}
@@ -38,6 +39,7 @@
     id="dashboardApp"
     data-status-url="{{ url_for('api_status') }}"
     data-runtime-url="{{ url_for('api_runtime') }}"
+    data-diagnostics-url="{{ url_for('api_diagnostics') }}"
     data-user-update-url="{{ url_for('update_user') }}"
     data-user-delete-url="{{ url_for('delete_user') }}"
     data-refresh-ms="{{ sample_seconds * 1000 }}"
@@ -409,6 +411,22 @@
           </table>
         </div>
       </details>
+    </section>
+  </div>
+  {% endif %}
+
+  {% if can_configure %}
+  <div class="tab-panel" id="tab-diagnostics" role="tabpanel">
+    <section class="panel settings-panel diagnostics-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">DIAGNOSTICA</p><h2>Stato servizi</h2></div>
+        <button class="ghost" id="diagnosticsRefresh" type="button">Aggiorna</button>
+      </div>
+      <p class="muted" id="diagnosticsNote">Le verifiche non interrogano la Tesla e non aprono nuove sessioni Modbus.</p>
+      <div class="service-grid" id="diagnosticsGrid" aria-live="polite">
+        <article class="service-card"><div><strong>Caricamento diagnostica…</strong></div></article>
+      </div>
+      <p class="muted diagnostics-time">Ultima verifica: <time id="diagnosticsCheckedAt">mai</time></p>
     </section>
   </div>
   {% endif %}

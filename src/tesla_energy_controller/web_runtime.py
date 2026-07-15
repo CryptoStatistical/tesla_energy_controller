@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -1949,6 +1951,246 @@ class WebRuntime:
             status["window_label"] = window.label
             status["window_mode"] = window.mode
         return status
+
+    @staticmethod
+    def _systemd_diagnostic(unit: str) -> tuple[str, str, str]:
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", unit],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return "unknown", "Non verificabile", "systemd non disponibile"
+        state = (result.stdout or result.stderr).strip() or "unknown"
+        if result.returncode == 0 and state == "active":
+            return "ok", "Operativo", f"Unit {unit} attiva"
+        if state in {"inactive", "failed", "deactivating"}:
+            return "error", "Non operativo", f"Unit {unit}: {state}"
+        return "unknown", "Non verificabile", f"Unit {unit}: {state}"
+
+    @staticmethod
+    def _bluetooth_adapter_diagnostic() -> tuple[str, str, str]:
+        try:
+            result = subprocess.run(
+                ["rfkill", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+                check=False,
+            )
+            devices = json.loads(result.stdout).get("rfkilldevices", [])
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+            devices = []
+        bluetooth = next(
+            (item for item in devices if item.get("type") == "bluetooth"),
+            None,
+        )
+        if bluetooth:
+            blocked = {
+                str(bluetooth.get("soft", "")).casefold(),
+                str(bluetooth.get("hard", "")).casefold(),
+            }
+            if "blocked" in blocked:
+                return "error", "Bloccato", "Adapter Bluetooth bloccato da rfkill"
+            if blocked == {"unblocked"}:
+                device = bluetooth.get("device") or "Bluetooth"
+                return "ok", "Operativo", f"Adapter {device} disponibile"
+
+        try:
+            result = subprocess.run(
+                ["bluetoothctl", "show"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return "unknown", "Non verificabile", "bluetoothctl non disponibile"
+        output = result.stdout.casefold()
+        if result.returncode == 0 and "powered: yes" in output:
+            return "ok", "Operativo", "Adapter Bluetooth acceso"
+        if "powered: no" in output:
+            return "error", "Spento", "Adapter Bluetooth non alimentato"
+        return "unknown", "Non verificabile", "Stato adapter Bluetooth non disponibile"
+
+    def diagnostics_payload(self) -> dict:
+        now = datetime.now(timezone.utc).astimezone()
+        status = self.status_payload()
+        stamp = _parse_observed_at(status.get("updated_at"))
+        if stamp is not None and stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=now.tzinfo)
+        age_seconds = max(0, int((now - stamp).total_seconds())) if stamp else None
+        max_age = max(self.control_interval_seconds() * 2, self.preview_interval_seconds() * 3)
+        fresh = age_seconds is not None and age_seconds <= max_age
+        actual_solar = str(
+            status.get("energy_source") or status.get("solar_source") or ""
+        ).casefold()
+        debug = status.get("debug") if isinstance(status.get("debug"), dict) else {}
+        debug_component = str(debug.get("component") or "").casefold()
+        message = _safe_text(status.get("message")) or ""
+        services = []
+
+        def add(identifier: str, name: str, state: str, label: str, detail: str) -> None:
+            services.append(
+                {
+                    "id": identifier,
+                    "name": name,
+                    "state": state,
+                    "label": label,
+                    "detail": _safe_text(detail, limit=300) or "—",
+                }
+            )
+
+        add("web", "Interfaccia web", "ok", "Operativa", "HTTP e sessione admin attivi")
+        if fresh:
+            add(
+                "scheduler",
+                "Controller e scheduler",
+                "ok",
+                "Operativo",
+                f"Ultimo ciclo {age_seconds}s fa",
+            )
+        else:
+            detail = "Nessun ciclo completato" if age_seconds is None else f"Ultimo ciclo {age_seconds}s fa"
+            add("scheduler", "Controller e scheduler", "warning", "Dato non fresco", detail)
+
+        interface = os.getenv("NETWORK_DEVICE", "wlan0")
+        operstate_path = Path(f"/sys/class/net/{interface}/operstate")
+        try:
+            operstate = operstate_path.read_text(encoding="ascii").strip()
+        except OSError:
+            operstate = "unknown"
+        if operstate == "up":
+            add("wifi", "Wi-Fi Raspberry", "ok", "Connessa", f"Interfaccia {interface} attiva")
+        elif operstate == "down":
+            add("wifi", "Wi-Fi Raspberry", "error", "Disconnessa", f"Interfaccia {interface} non attiva")
+        else:
+            add("wifi", "Wi-Fi Raspberry", "unknown", "Non verificabile", f"Interfaccia {interface}: {operstate}")
+
+        watchdog = self._systemd_diagnostic(
+            "tesla-energy-controller-network-watchdog.timer"
+        )
+        add("network-watchdog", "Watchdog rete", *watchdog)
+
+        if self.hard.tesla_transport == "ble":
+            add("bluetooth", "Adapter Bluetooth", *self._bluetooth_adapter_diagnostic())
+            ble_state = str(status.get("tesla_ble_control_state") or "cached")
+            ble_message = _safe_text(status.get("tesla_ble_control_message")) or ""
+            if not self.tesla_ble_status().get("key_configured"):
+                add("tesla-ble", "Tesla BLE", "error", "Non configurata", "Chiave BLE mancante")
+            elif ble_state == "connected":
+                add("tesla-ble", "Tesla BLE", "ok", "Raggiungibile", ble_message)
+            elif ble_state == "not-needed":
+                add("tesla-ble", "Tesla BLE", "standby", "Standby", ble_message)
+            elif ble_state == "unreachable":
+                add("tesla-ble", "Tesla BLE", "error", "Non raggiungibile", ble_message)
+            else:
+                add("tesla-ble", "Tesla BLE", "unknown", "Dato in cache", ble_message)
+        else:
+            add("bluetooth", "Adapter Bluetooth", "disabled", "Disabilitato", "Trasporto BLE non configurato")
+            add("tesla-ble", "Tesla BLE", "disabled", "Disabilitata", "Trasporto Tesla non BLE")
+
+        if not self.hard.wall_connector_host:
+            add("wall-connector", "Wall Connector", "disabled", "Non configurato", "Host assente")
+        elif status.get("tesla_power_source") == "wall-connector-unavailable":
+            add("wall-connector", "Wall Connector", "error", "Non raggiungibile", message)
+        elif fresh and (
+            status.get("wall_connector_vehicle_connected") is not None
+            or status.get("wall_connector_contactor_closed") is not None
+        ):
+            label = "In carica" if status.get("wall_connector_contactor_closed") else "Standby"
+            state = "ok" if status.get("wall_connector_contactor_closed") else "standby"
+            add("wall-connector", "Wall Connector", state, label, "API locale disponibile")
+        else:
+            add("wall-connector", "Wall Connector", "warning", "Dato non fresco", "API configurata, ultima lettura non disponibile")
+
+        if not self.hard.solaredge_modbus_host:
+            add("solaredge-modbus", "SolarEdge Modbus", "disabled", "Non configurato", "Host Modbus assente")
+        elif self.current.solar_source != "solaredge-modbus":
+            add("solaredge-modbus", "SolarEdge Modbus", "standby", "Non selezionato", "Connettore opzionale configurato")
+        elif status.get("solar_source_degraded"):
+            add("solaredge-modbus", "SolarEdge Modbus", "warning", "Fallback attivo", message)
+        elif actual_solar.startswith("solaredge-modbus") and fresh:
+            add("solaredge-modbus", "SolarEdge Modbus", "ok", "Operativo", "Ultima produzione letta via Modbus")
+        else:
+            try:
+                solar_window_active = self.solaredge_modbus_window(now).active
+            except RuntimeSettingsError:
+                solar_window_active = True
+            state = "warning" if solar_window_active else "standby"
+            label = "Dato non fresco" if solar_window_active else "Standby notturno"
+            add("solaredge-modbus", "SolarEdge Modbus", state, label, message or "In attesa della finestra solare")
+
+        web_configured = bool(
+            self.hard.solaredge_username
+            and self.hard.solaredge_password
+            and self.hard.solaredge_site_id is not None
+        )
+        if not web_configured:
+            add("solaredge-web", "SolarEdge web", "disabled", "Non configurato", "Credenziali o site ID mancanti")
+        elif actual_solar.startswith("solaredge-web") and fresh:
+            detail = "Connettore web attivo"
+            if self.current.solar_source == "solaredge-modbus":
+                detail = "Connettore web operativo come fallback"
+            add("solaredge-web", "SolarEdge web", "ok", "Operativo", detail)
+        elif self.current.solar_source == "solaredge-web" and debug_component == "solaredge":
+            add("solaredge-web", "SolarEdge web", "error", "Errore connettore", message)
+        else:
+            add("solaredge-web", "SolarEdge web", "standby", "Non verificato", "Configurato ma non usato nell'ultimo ciclo")
+
+        alfa_enabled = bool(
+            self.current.alfa_grid_reading_enabled or self.hard.energy_source == "alfa-modbus"
+        )
+        if not self.hard.alfa_modbus_host:
+            add("alfa-modbus", "ALFA Modbus", "disabled", "Non configurato", "Host ALFA assente")
+        elif not alfa_enabled:
+            add("alfa-modbus", "ALFA Modbus", "standby", "Disabilitato da pannello", "Connettore configurato")
+        elif fresh and status.get("import_power_w") is not None and status.get("export_power_w") is not None:
+            add("alfa-modbus", "ALFA Modbus", "ok", "Operativo", "Import/export disponibili nell'ultimo ciclo")
+        elif debug_component == "alfa" or "alfa" in message.casefold():
+            add("alfa-modbus", "ALFA Modbus", "error", "Errore lettura", message)
+        else:
+            add("alfa-modbus", "ALFA Modbus", "warning", "Dato non fresco", "Ultima misura import/export non disponibile")
+
+        if not self.hard.vimar_host:
+            add("vimar", "Vimar", "disabled", "Non configurato", "Gateway non impostato")
+        elif fresh and status.get("vimar_power_w") is not None:
+            add("vimar", "Vimar", "ok", "Operativo", "Consumi disponibili nell'ultimo ciclo")
+        elif "vimar" in message.casefold() or "websocket" in message.casefold():
+            add("vimar", "Vimar", "error", "Errore lettura", message)
+        else:
+            add("vimar", "Vimar", "warning", "Dato non fresco", "Gateway configurato, ultima lettura non disponibile")
+
+        tuya_service = self._systemd_diagnostic("tesla-energy-controller-tuya.service")
+        if self.hard.tuya_enabled:
+            add("tuya", "Tuya / Smart Life", *tuya_service)
+        elif tuya_service[0] == "ok":
+            add(
+                "tuya",
+                "Tuya / Smart Life",
+                "warning",
+                "Configurazione incoerente",
+                "Unit attiva ma TUYA_ENABLED=false",
+            )
+        else:
+            add("tuya", "Tuya / Smart Life", "disabled", "Disabilitato", "TUYA_ENABLED=false")
+
+        try:
+            self.db.latest_measurements(1)
+        except Exception as exc:
+            add("sqlite", "Database SQLite", "error", "Errore", str(exc))
+        else:
+            add("sqlite", "Database SQLite", "ok", "Operativo", "Database leggibile")
+
+        return {
+            "generated_at": now.isoformat(),
+            "sample_age_seconds": age_seconds,
+            "services": services,
+            "note": "Diagnostica non invasiva: Tesla e bus Modbus non vengono interrogati.",
+        }
 
     def monthly_peak_import_w(self, now: datetime | None = None) -> float:
         """Massima potenza media quartoraria completa del mese corrente."""

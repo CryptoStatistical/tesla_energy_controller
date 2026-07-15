@@ -203,6 +203,12 @@ not send Tesla commands.
 Admin users can change configuration. Viewer users can only inspect the dashboard and toggle the
 controller on/off when allowed by the application role model.
 
+The admin-only **Diagnostics** tab summarizes the web interface, scheduler, Wi-Fi, network
+watchdog, Bluetooth adapter, Tesla BLE, Wall Connector, SolarEdge Modbus, SolarEdge web, ALFA
+Modbus, Vimar, Tuya, and SQLite. Checks use systemd state and already available readings: they do
+not wake the Tesla or open additional Modbus sessions. Configured but inactive connectors are
+reported as standby/unverified rather than healthy.
+
 ## Local Development
 
 ```bash

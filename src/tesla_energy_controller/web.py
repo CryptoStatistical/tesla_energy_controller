@@ -114,6 +114,14 @@ def create_app(
             return None
         return jsonify(error="unauthorized"), 401
 
+    def api_admin_guard():
+        guard = api_auth_guard()
+        if guard is not None:
+            return guard
+        if not can_configure():
+            return jsonify(error="Solo admin"), 403
+        return None
+
     def form_guard(*, admin: bool = False):
         if not authenticated():
             if wants_json():
@@ -213,6 +221,13 @@ def create_app(
         if guard is not None:
             return guard
         return jsonify(scoped_ui_payload())
+
+    @app.get("/api/diagnostics")
+    def api_diagnostics():
+        guard = api_admin_guard()
+        if guard is not None:
+            return guard
+        return jsonify(runtime.diagnostics_payload())
 
     @app.get("/api/series")
     def api_series():
