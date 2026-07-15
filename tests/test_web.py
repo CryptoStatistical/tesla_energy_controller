@@ -362,10 +362,38 @@ def test_admin_diagnostics_are_non_invasive_and_cover_services(monkeypatch, tmp_
         lambda: (_ for _ in ()).throw(AssertionError("sonda Modbus non ammessa")),
     )
 
+    class DiagnosticClient:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class DiagnosticSolarEdgeWeb:
+        client = DiagnosticClient()
+
+        @staticmethod
+        def read():
+            return GridMeasurement(
+                total_power_w=-1200,
+                solar_power_w=4321,
+                source="solaredge-web",
+            )
+
+    diagnostic_source = DiagnosticSolarEdgeWeb()
+    monkeypatch.setattr(
+        "tesla_energy_controller.web_runtime.build_grid_source",
+        lambda _settings, source, **_kwargs: (
+            diagnostic_source
+            if source == "solaredge-web"
+            else (_ for _ in ()).throw(AssertionError("sorgente diagnostica inattesa"))
+        ),
+    )
+
     with app.test_client() as client:
         login(client)
         page = client.get("/").get_data(as_text=True)
         response = client.get("/api/diagnostics")
+        verification = client.get("/api/diagnostics?verify=1")
 
     assert 'data-tab="diagnostics"' in page
     assert response.status_code == 200
@@ -381,8 +409,14 @@ def test_admin_diagnostics_are_non_invasive_and_cover_services(monkeypatch, tmp_
     assert by_id["vimar"]["state"] == "ok"
     assert by_id["tuya"]["state"] == "ok"
     assert by_id["sqlite"]["state"] == "ok"
-    assert "non vengono interrogati" in payload["note"]
+    assert "Verifica servizi" in payload["note"]
     assert settings.web_password not in response.get_data(as_text=True)
+
+    verified = {item["id"]: item for item in verification.get_json()["services"]}
+    assert verified["solaredge-web"]["state"] == "ok"
+    assert "FV 4321 W" in verified["solaredge-web"]["detail"]
+    assert "bus Modbus non sono stati interrogati" in verification.get_json()["note"]
+    assert diagnostic_source.client.closed is True
 
     runtime.hard = replace(runtime.hard, tuya_enabled=False)
     disabled_payload = runtime.diagnostics_payload()

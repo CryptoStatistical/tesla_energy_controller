@@ -297,6 +297,7 @@ class WebRuntime:
         self.refresh_mail_recipients()
         self.lock = threading.Lock()
         self.run_now_lock = threading.Lock()
+        self.diagnostics_verify_lock = threading.Lock()
         self.run_now_running = False
         self.run_now_pending = False
         self.stop_event = threading.Event()
@@ -2016,7 +2017,43 @@ class WebRuntime:
             return "error", "Spento", "Adapter Bluetooth non alimentato"
         return "unknown", "Non verificabile", "Stato adapter Bluetooth non disponibile"
 
-    def diagnostics_payload(self) -> dict:
+    def _verify_solaredge_web_diagnostic(self) -> tuple[str, str, str]:
+        if not (
+            self.hard.solaredge_username
+            and self.hard.solaredge_password
+            and self.hard.solaredge_site_id is not None
+        ):
+            return "disabled", "Non configurato", "Credenziali o site ID mancanti"
+        if not self.diagnostics_verify_lock.acquire(blocking=False):
+            return "warning", "Verifica in corso", "Attendere il completamento della verifica"
+        source = None
+        try:
+            source = build_grid_source(
+                self.hard,
+                "solaredge-web",
+                expected_phases=self.current.expected_phases,
+            )
+            measurement = source.read()
+            solar_power_w = _as_float(measurement.solar_power_w)
+            detail = "Power-flow SolarEdge web ricevuto"
+            if solar_power_w is not None:
+                detail += f": FV {solar_power_w:.0f} W"
+            return "ok", "Operativo", detail
+        except SolarEdgeAccessError as exc:
+            detail = f"{exc} (fase {exc.phase})"
+            return "error", "Verifica fallita", detail
+        except Exception as exc:
+            return "error", "Verifica fallita", f"{type(exc).__name__}: {exc}"
+        finally:
+            client = getattr(source, "client", None)
+            close = getattr(client, "close", None)
+            try:
+                if callable(close):
+                    close()
+            finally:
+                self.diagnostics_verify_lock.release()
+
+    def diagnostics_payload(self, *, verify: bool = False) -> dict:
         now = datetime.now(timezone.utc).astimezone()
         status = self.status_payload()
         stamp = _parse_observed_at(status.get("updated_at"))
@@ -2032,6 +2069,7 @@ class WebRuntime:
         debug_component = str(debug.get("component") or "").casefold()
         message = _safe_text(status.get("message")) or ""
         services = []
+        solaredge_web_check = self._verify_solaredge_web_diagnostic() if verify else None
 
         def add(identifier: str, name: str, state: str, label: str, detail: str) -> None:
             services.append(
@@ -2131,6 +2169,8 @@ class WebRuntime:
         )
         if not web_configured:
             add("solaredge-web", "SolarEdge web", "disabled", "Non configurato", "Credenziali o site ID mancanti")
+        elif solaredge_web_check is not None:
+            add("solaredge-web", "SolarEdge web", *solaredge_web_check)
         elif actual_solar.startswith("solaredge-web") and fresh:
             detail = "Connettore web attivo"
             if self.current.solar_source == "solaredge-modbus":
@@ -2189,7 +2229,12 @@ class WebRuntime:
             "generated_at": now.isoformat(),
             "sample_age_seconds": age_seconds,
             "services": services,
-            "note": "Diagnostica non invasiva: Tesla e bus Modbus non vengono interrogati.",
+            "note": (
+                "Verifica attiva completata: SolarEdge web interrogato; "
+                "Tesla e bus Modbus non sono stati interrogati."
+                if verify
+                else "Stati passivi: premere Verifica servizi per controllare SolarEdge web."
+            ),
         }
 
     def monthly_peak_import_w(self, now: datetime | None = None) -> float:

@@ -227,7 +227,7 @@ def create_app(
         guard = api_admin_guard()
         if guard is not None:
             return guard
-        return jsonify(runtime.diagnostics_payload())
+        return jsonify(runtime.diagnostics_payload(verify=request.args.get("verify") == "1"))
 
     @app.get("/api/series")
     def api_series():

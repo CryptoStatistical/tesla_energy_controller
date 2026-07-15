@@ -745,13 +745,17 @@
     diagnosticsLoaded = true;
   }
 
-  function loadDiagnostics(force) {
+  function loadDiagnostics(force, verify) {
     if (!appRoot || diagnosticsLoading || (diagnosticsLoaded && !force)) return;
     var url = appRoot.getAttribute("data-diagnostics-url");
     if (!url) return;
+    if (verify) url += (url.indexOf("?") === -1 ? "?" : "&") + "verify=1";
     diagnosticsLoading = true;
     var button = document.getElementById("diagnosticsRefresh");
-    if (button) button.disabled = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = verify ? "Verifica in corso..." : "Caricamento...";
+    }
     fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } })
       .then(function (response) {
         if (response.status === 401) { window.location.href = "/login"; return null; }
@@ -762,13 +766,16 @@
       .catch(function () { showFeedback("Diagnostica non disponibile", "error"); })
       .then(function () {
         diagnosticsLoading = false;
-        if (button) button.disabled = false;
+        if (button) {
+          button.disabled = false;
+          button.textContent = "Verifica servizi";
+        }
       });
   }
 
   var diagnosticsRefresh = document.getElementById("diagnosticsRefresh");
   if (diagnosticsRefresh) {
-    diagnosticsRefresh.addEventListener("click", function () { loadDiagnostics(true); });
+    diagnosticsRefresh.addEventListener("click", function () { loadDiagnostics(true, true); });
   }
 
   // data-refresh-ms riflette il campionamento storico/decisionale (tipicamente 300s).

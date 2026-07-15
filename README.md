@@ -472,9 +472,10 @@ che `bluetoothctl power off/on` funzioni con l'utente del servizio, si può abil
 
 Il tab admin **Diagnostica** riepiloga lo stato di interfaccia web, scheduler, Wi-Fi, watchdog rete,
 adapter Bluetooth, Tesla BLE, Wall Connector, SolarEdge Modbus, SolarEdge web, ALFA Modbus, Vimar,
-Tuya e SQLite. Le verifiche usano stato systemd e ultime letture già disponibili: non svegliano la
-Tesla e non aprono sessioni aggiuntive sui bus Modbus. Un connettore configurato ma non selezionato
-viene mostrato come standby/non verificato, non come operativo.
+Tuya e SQLite. Lo stato iniziale usa systemd e le ultime letture disponibili. Il pulsante **Verifica
+servizi** interroga realmente il power-flow SolarEdge web anche quando la sorgente primaria è
+Modbus, mostrando l'esito e la produzione FV ricevuta. Tesla e bus Modbus restano passivi: la
+verifica non sveglia l'auto e non apre sessioni Modbus aggiuntive.
 
 ## Pannello web e scheduler
 
