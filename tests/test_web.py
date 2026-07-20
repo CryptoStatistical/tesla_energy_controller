@@ -2221,6 +2221,23 @@ def test_wall_connector_data_source_does_not_query_tesla_ble(monkeypatch, tmp_pa
     runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
         AssertionError("BLE non deve essere interrogato")
     )
+    runtime._rolling_samples = [
+        (
+            datetime(2026, 6, 22, 11, 59, 30, tzinfo=ZoneInfo("Europe/Rome")),
+            {
+                "observed_at": "2026-06-22T11:59:30+02:00",
+                "solar_power_w": 5000,
+                "import_power_w": 3500,
+                "export_power_w": 0,
+                "tesla_power_w": 3500,
+                "vimar_power_w": 1000,
+                "total_consumption_w": 8500,
+                "wall_connector_vehicle_connected": True,
+                "wall_connector_contactor_closed": True,
+            },
+            [],
+        )
+    ]
 
     class Wall:
         @staticmethod
@@ -2231,7 +2248,7 @@ def test_wall_connector_data_source_does_not_query_tesla_ble(monkeypatch, tmp_pa
                 grid_v=230,
                 vehicle_current_a=0.4,
                 phase_currents_a=(0.4, 0.0, 0.2),
-                power_w=0,
+                power_w=138,
                 evse_state=1,
             )
 
@@ -2249,6 +2266,7 @@ def test_wall_connector_data_source_does_not_query_tesla_ble(monkeypatch, tmp_pa
     assert status["tesla_ble_control_state"] == "not-needed"
     assert status["actual_current_a"] is None
     assert status["voltage_v"] == 230
+    assert status["control_sample_count"] == 1
 
 
 def test_wall_connector_active_charge_uses_ble_for_control(monkeypatch, tmp_path):

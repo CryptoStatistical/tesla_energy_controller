@@ -418,6 +418,35 @@ def test_tuya_status_cache_total_is_never_below_house_plus_tesla(tmp_path):
     assert properties["total_consumption_w"] == 1134
 
 
+def test_tuya_disconnection_discards_smoothed_tesla_power(tmp_path):
+    settings = SimpleNamespace(
+        energy_source="mock",
+        energy_database_file=str(tmp_path / "energy.sqlite3"),
+        tuya_average_samples=1,
+        tuya_report_interval_seconds=10,
+        tuya_report_tesla=False,
+    )
+    write_status_cache(
+        settings,
+        {
+            "updated_at": "2026-07-20T06:55:47+02:00",
+            "solar_power_w": 442,
+            "house_power_w": 376,
+            "tesla_power_w": 1313,
+            "total_consumption_w": 1689,
+            "wall_connector_vehicle_connected": False,
+            "wall_connector_contactor_closed": False,
+        },
+    )
+
+    properties = TuyaEnergyMeterBridge(settings=settings, controller=None).properties()
+
+    assert properties["tesla_power_w"] == 0
+    assert properties["house_consumption_w"] == 376
+    assert properties["total_consumption_w"] == 376
+    assert properties["tesla_state"] == "disconnected"
+
+
 def test_tuya_sqlite_wall_connector_standby_is_idle(tmp_path):
     database_file = tmp_path / "energy.sqlite3"
     database = EnergyDatabase(str(database_file))

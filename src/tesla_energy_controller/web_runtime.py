@@ -652,6 +652,18 @@ class WebRuntime:
         energy: dict,
         appliances: list[dict],
     ) -> None:
+        wall_disconnected = (
+            energy.get("wall_connector_vehicle_connected") is False
+            and energy.get("wall_connector_contactor_closed") is False
+        )
+        if wall_disconnected and self._rolling_samples:
+            previous = self._rolling_samples[-1][1]
+            was_connected = bool(
+                previous.get("wall_connector_vehicle_connected")
+                or previous.get("wall_connector_contactor_closed")
+            )
+            if was_connected:
+                self._rolling_samples.clear()
         sample = {
             "observed_at": observed_at.isoformat(),
             "solar_power_w": energy.get("solar_power_w"),
@@ -660,6 +672,12 @@ class WebRuntime:
             "tesla_power_w": energy.get("tesla_power_w"),
             "vimar_power_w": energy.get("vimar_power_w"),
             "total_consumption_w": energy.get("total_consumption_w"),
+            "wall_connector_vehicle_connected": energy.get(
+                "wall_connector_vehicle_connected"
+            ),
+            "wall_connector_contactor_closed": energy.get(
+                "wall_connector_contactor_closed"
+            ),
         }
         appliance_samples = [
             {"name": item.get("name", ""), "power_w": item.get("power_w")}
@@ -1031,7 +1049,10 @@ class WebRuntime:
                 tesla_power_w = 0.0
                 tesla_power_source = "wall-connector-unavailable"
             else:
-                tesla_power_w = wall_vitals.power_w
+                wall_disconnected = not (
+                    wall_vitals.vehicle_connected or wall_vitals.contactor_closed
+                )
+                tesla_power_w = 0.0 if wall_disconnected else wall_vitals.power_w
                 self._track_wall_charge_session(wall_vitals)
                 wall_charge_active = (
                     wall_vitals.vehicle_current_a >= TESLA_COMPLETE_BLE_RESUME_CURRENT_A
@@ -1231,13 +1252,13 @@ class WebRuntime:
             "exported_energy_by_tariff_wh": measurement.exported_energy_by_tariff_wh,
             "tesla_current_a": (
                 wall_vitals.vehicle_current_a
-                if wall_vitals is not None and wall_vitals.power_w > 0
+                if wall_vitals is not None and tesla_power_w > 0
                 else (car.current_request_a if car and car.is_charging else None)
             ),
             "voltage_v": wall_vitals.grid_v if wall_vitals is not None else (car.voltage_v if car else None),
             "actual_current_a": (
                 wall_vitals.vehicle_current_a
-                if wall_vitals is not None and wall_vitals.power_w > 0
+                if wall_vitals is not None and tesla_power_w > 0
                 else (car.actual_current_a if car else None)
             ),
             "charger_power_kw": (

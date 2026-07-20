@@ -411,6 +411,14 @@ class TuyaEnergyMeterBridge:
             0.0,
         )
         house_power_w = self._number(status.get("house_power_w"))
+        wall_disconnected = (
+            status.get("wall_connector_vehicle_connected") is False
+            and status.get("wall_connector_contactor_closed") is False
+        )
+        if wall_disconnected:
+            tesla_power_w = 0.0
+            if house_power_w is not None:
+                total_consumption_w = max(house_power_w, 0.0)
         if house_power_w is None:
             house_power_w = max(total_consumption_w - tesla_power_w, 0.0)
         total_consumption_w = max(total_consumption_w, house_power_w + tesla_power_w)
