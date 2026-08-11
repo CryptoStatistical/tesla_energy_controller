@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Accesso · Tesla Energy Monitor{% endblock %}
+{% block title %}Accesso · Tesla Remote Meter{% endblock %}
 {% block content %}
   <section class="login-panel panel">
     <div class="brand-mark" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor"/></svg>
     </div>
     <p class="eyebrow">CONTROLLO ENERGIA</p>
-    <h1>Tesla Energy Controller</h1>
+    <h1>Tesla Remote Meter</h1>
     <p class="muted">Accedi al pannello locale del tuo impianto.</p>
     {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
     <form method="post" action="{{ url_for('login') }}">

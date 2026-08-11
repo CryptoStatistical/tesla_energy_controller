@@ -2,6 +2,18 @@
 
 English version: [README.en.md](README.en.md)
 
+## Riferimento Tesla Remote Meter
+
+La dashboard locale usa il nome **Tesla Remote Meter** come riferimento funzionale al prodotto
+originale Tesla: [Tesla Remote Meter](https://shop.tesla.com/product/tesla-remote-meter).
+Il dispositivo ufficiale Tesla è un meter hardware pensato per abilitare il Dynamic Power
+Management del Wall Connector.
+
+Questo progetto funziona in modo diverso: non è il dispositivo Tesla originale e non ne sostituisce
+l'hardware certificato. È un controller software locale su Raspberry Pi che usa sensori e sorgenti
+già presenti in rete, per esempio Modbus TCP e Wi-Fi, per leggere produzione FV, import/export,
+consumi domestici e stato Wall Connector/Tesla.
+
 ## Demo prodotto
 
 [![Demo Tesla Energy Controller](docs/assets/tesla-energy-controller-demo.gif)](docs/assets/tesla-energy-controller-demo.mp4)

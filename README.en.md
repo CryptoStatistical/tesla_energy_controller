@@ -7,6 +7,17 @@ real Italian residential energy setup. In particular, the ALFA by Sinapsi integr
 designed for the Italian Enel meter context and should not be treated as a generic international
 smart-meter driver.
 
+## Tesla Remote Meter Reference
+
+The local dashboard uses **Tesla Remote Meter** as a functional reference to Tesla's original
+product: [Tesla Remote Meter](https://shop.tesla.com/product/tesla-remote-meter). Tesla's official
+device is a hardware meter designed to enable Dynamic Power Management for Wall Connector.
+
+This project works differently: it is not Tesla's original device and it does not replace certified
+metering hardware. It is a local Raspberry Pi software controller that reads existing networked
+sensors and devices, for example over Modbus TCP and Wi-Fi, to collect PV production, grid
+import/export, home consumption, and Wall Connector/Tesla state.
+
 ## Presentation Materials
 
 - [Technical presentation PDF](docs/presentation/tesla-energy-controller-presentation.pdf)
