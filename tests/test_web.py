@@ -3616,6 +3616,17 @@ def test_appliance_total_series_stays_visible_as_reference_line():
     assert "chart.setDatasetVisibility(index, !item.hidden);" in script
 
 
+def test_dashboard_day_sliders_share_the_selected_day():
+    script = Path("src/tesla_energy_controller/static/dashboard.js").read_text()
+    assert "var synchronizedChartDay = null;" in script
+    assert "function synchronizeChartDay(day, origin, immediate)" in script
+    assert "if (item !== origin) item.selectDay(day, immediate);" in script
+    assert "if (broadcast) synchronizeChartDay(day, api, immediate);" in script
+    assert "if (!hasLoaded) load(synchronizedChartDay);" in script
+    assert "if (days[index]) selectDay(days[index], true, false);" in script
+    assert "if (days[index]) selectDay(days[index], true, true);" in script
+
+
 def test_manual_mode_badge_only_shows_for_manual_override(monkeypatch, tmp_path):
     app, _settings = application(monkeypatch, tmp_path)
     runtime = app.extensions["energy_runtime"]

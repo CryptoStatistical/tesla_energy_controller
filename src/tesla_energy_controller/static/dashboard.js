@@ -967,6 +967,17 @@
     };
   }
 
+  var synchronizedChartDay = null;
+  var synchronizedDayControllers = [];
+
+  function synchronizeChartDay(day, origin, immediate) {
+    if (!day) return;
+    synchronizedChartDay = day;
+    synchronizedDayControllers.forEach(function (item) {
+      if (item !== origin) item.selectDay(day, immediate);
+    });
+  }
+
   function controller(opts) {
     var card = document.getElementById(opts.cardId);
     if (!card) return null;
@@ -986,6 +997,7 @@
     var loadTimer = null;
     var hiddenLegendLabels = Object.create(null);
     var legendStorageKey = opts.persistLegend ? "tesla-energy:hidden-legend:" + opts.cardId : null;
+    var api = null;
 
     function loadLegendChoices() {
       if (!legendStorageKey || !window.sessionStorage) return;
@@ -1010,6 +1022,15 @@
     function selectedIndex() {
       if (!slider) return -1;
       return parseInt(slider.value, 10) || 0;
+    }
+
+    function showSelectedDay(day) {
+      if (!day) return;
+      if (dayCap) dayCap.textContent = day;
+      if (dayOut) dayOut.textContent = day;
+      if (!slider || !days.length) return;
+      var index = days.indexOf(day);
+      if (index >= 0) slider.value = String(index);
     }
 
     function updateDayButtons() {
@@ -1078,7 +1099,7 @@
 
     function load(day) {
       hasLoaded = true;
-      selectedDay = day || null;
+      if (day) selectedDay = day;
       var target = url + (day ? ("?day=" + encodeURIComponent(day)) : "");
       if (activeRequest) activeRequest.abort();
       var request = typeof AbortController === "undefined" ? null : new AbortController();
@@ -1097,7 +1118,11 @@
         .then(function (data) {
           if (!data) return;
           if (Array.isArray(data.days)) {
-            days = data.days;
+            days = data.days.slice();
+            if (data.day && days.indexOf(data.day) < 0) {
+              days.push(data.day);
+              days.sort();
+            }
             if (slider) {
               slider.max = String(Math.max(0, days.length - 1));
               var index = days.indexOf(data.day);
@@ -1106,6 +1131,8 @@
             }
             updateDayButtons();
           }
+          selectedDay = data.day || selectedDay;
+          if (!synchronizedChartDay && selectedDay) synchronizedChartDay = selectedDay;
           paint(data);
         })
         .catch(function (error) {
@@ -1128,18 +1155,29 @@
       }, 160);
     }
 
+    function selectDay(day, broadcast, immediate) {
+      if (!day) return;
+      selectedDay = day;
+      showSelectedDay(day);
+      updateDayButtons();
+      if (broadcast) synchronizeChartDay(day, api, immediate);
+      if (immediate) {
+        if (loadTimer) window.clearTimeout(loadTimer);
+        loadTimer = null;
+        load(day);
+      } else {
+        scheduleLoad(day);
+      }
+    }
+
     if (slider) {
       slider.addEventListener("input", function () {
         var index = selectedIndex();
-        updateDayButtons();
-        if (days[index]) scheduleLoad(days[index]);
+        if (days[index]) selectDay(days[index], true, false);
       });
       slider.addEventListener("change", function () {
         var index = selectedIndex();
-        if (days[index]) {
-          if (loadTimer) window.clearTimeout(loadTimer);
-          load(days[index]);
-        }
+        if (days[index]) selectDay(days[index], true, true);
       });
     }
     [prevDayButton, nextDayButton].forEach(function (button) {
@@ -1149,19 +1187,18 @@
         var nextIndex = selectedIndex() + Number(button.getAttribute("data-day-step"));
         nextIndex = Math.max(0, Math.min(days.length - 1, nextIndex));
         if (!days[nextIndex]) return;
-        slider.value = String(nextIndex);
-        updateDayButtons();
-        if (loadTimer) window.clearTimeout(loadTimer);
-        load(days[nextIndex]);
+        selectDay(days[nextIndex], true, true);
       });
     });
     updateDayButtons();
 
     loadLegendChoices();
-    if (opts.autoload !== false) load(null);
-    return {
+    api = {
       load: function () {
-        if (!hasLoaded) load(null);
+        if (!hasLoaded) load(synchronizedChartDay);
+      },
+      selectDay: function (day, immediate) {
+        selectDay(day, false, immediate);
       },
       refresh: function () {
         if (!hasLoaded) return;
@@ -1172,6 +1209,9 @@
         if (chart) chart.resize();
       }
     };
+    synchronizedDayControllers.push(api);
+    if (opts.autoload !== false) load(synchronizedChartDay);
+    return api;
   }
 
   var energyController = controller({
