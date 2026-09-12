@@ -629,8 +629,8 @@ la Tesla è appena stata riavviata e il Wall Connector misura ancora 0 W. Se il 
 la misura SolarEdge cloud non è ancora cambiata, il Target mostra comunque la corrente di ricarica
 tenuta. L'avvio e l'arresto della ricarica restano manuali per impostazione predefinita, salvo la
 sospensione/ripresa automatica abilitata dalla logica quota potenza con ALFA. L'admin può inoltre
-abilitare **Avvio automatico nella finestra solare** quando la misura Tesla arriva dal Wall
-Connector. Se la colonnina rileva una Tesla collegata ma ferma fuori fascia, il controller si arma
+disabilitare **Avvio automatico nella finestra solare**, attivo per impostazione predefinita quando
+la misura Tesla arriva dal Wall Connector. Se la colonnina rileva una Tesla collegata ma ferma fuori fascia, il controller si arma
 senza interrogare il BLE; al primo ciclo di controllo nella finestra solare verifica lo stato via
 BLE e avvia la ricarica soltanto da `Stopped` o `NoPower`, mai da `Complete`. La corrente iniziale è
 la minima configurata, eventualmente ridotta per restare entro la quota potenza. Un arresto manuale

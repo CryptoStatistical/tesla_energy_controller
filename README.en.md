@@ -189,7 +189,7 @@ Admins can optionally enable **Automatic start in the solar window**. When the W
 a connected but idle Tesla outside the solar window, the controller arms without querying BLE. On
 the first control cycle inside the window it checks the charge state through BLE and starts only
 from `Stopped` or `NoPower`, never from `Complete`. The initial current is the configured minimum,
-reduced when necessary to remain within the power quota. The option is disabled by default, and a
+reduced when necessary to remain within the power quota. The option is enabled by default, and a
 manual stop made during the active window is not restarted that day.
 
 ## Dashboard

@@ -148,7 +148,7 @@ def test_runtime_defaults_enable_mail_and_ble_recovery(monkeypatch, tmp_path):
     assert runtime.current.error_email_enabled is True
     assert runtime.current.anomaly_email_enabled is True
     assert runtime.current.tesla_ble_recovery_enabled is True
-    assert runtime.current.autostart_enabled is False
+    assert runtime.current.autostart_enabled is True
     assert runtime.current.power_quota_target_w == 7000
     assert runtime.reporter.enabled is True
 

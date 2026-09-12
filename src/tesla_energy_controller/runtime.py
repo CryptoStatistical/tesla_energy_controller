@@ -143,7 +143,7 @@ class RuntimeSettings:
             tesla_ble_command_timeout_seconds=settings.tesla_ble_command_timeout_seconds,
             tesla_ble_retries=settings.tesla_ble_retries,
             tesla_ble_recovery_enabled=True,
-            autostart_enabled=False,
+            autostart_enabled=True,
             anomaly_peak_threshold_w=1500.0,
             anomaly_device_patterns=(
                 "forno, forni, pompa di calore, frigo, frighi, cucina, "
