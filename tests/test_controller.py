@@ -83,6 +83,74 @@ def test_does_nothing_when_not_charging():
     assert subject.grid.reads == 0
 
 
+def test_autostart_starts_stopped_tesla_at_configured_minimum():
+    measurement = GridMeasurement(
+        total_power_w=500,
+        solar_power_w=2000,
+        import_power_w=500,
+        export_power_w=0,
+    )
+    subject, vehicle = controller(
+        measurement,
+        state(current=5, status="Stopped"),
+        min_charge_amps=3,
+        max_charge_amps=13,
+    )
+
+    decision = subject.start_charging_from_snapshot(
+        measurement,
+        state(current=5, status="Stopped"),
+        manual_override_amps=14,
+    )
+
+    assert decision.action == "start"
+    assert decision.target_a == 3
+    assert vehicle.commands == [3, "start"]
+
+
+def test_autostart_does_not_restart_completed_tesla():
+    measurement = GridMeasurement(total_power_w=0, solar_power_w=3000)
+    subject, vehicle = controller(measurement, state(status="Complete"))
+
+    decision = subject.start_charging_from_snapshot(
+        measurement,
+        state(status="Complete"),
+    )
+
+    assert decision.action == "skip"
+    assert decision.target_a == 0
+    assert "ricarica completa" in decision.reason
+    assert vehicle.commands == []
+
+
+def test_autostart_waits_when_power_quota_has_no_room():
+    measurement = GridMeasurement(
+        total_power_w=6800,
+        solar_power_w=500,
+        import_power_w=6800,
+        export_power_w=0,
+    )
+    subject, vehicle = controller(
+        measurement,
+        state(status="Stopped"),
+        min_charge_amps=3,
+    )
+
+    decision = subject.start_charging_from_snapshot(
+        measurement,
+        state(status="Stopped"),
+        projected_quarter_hour_import_w=6800,
+        power_quota_limit_w=7000,
+        power_quota_hysteresis_w=500,
+        manual_override_amps=14,
+    )
+
+    assert decision.action == "hold"
+    assert decision.target_a == 0
+    assert "margine quota insufficiente" in decision.reason
+    assert vehicle.commands == []
+
+
 def test_phase_mismatch_is_fail_safe():
     subject, vehicle = controller(GridMeasurement(-5000), state(phases=1))
     decision = subject.run_once()

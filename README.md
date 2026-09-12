@@ -587,6 +587,7 @@ Il pannello permette di configurare:
 - extra rete ammesso, **inserito in Ampere**, nella modalità storica;
 - obiettivo della quota quartoraria in kW e relativo margine quando ALFA è attiva;
 - corrente minima di ricarica (la massima gestita è derivata come `override manuale − 1`);
+- avvio automatico opzionale della Tesla all'apertura della finestra solare;
 - intervallo di tensione ammesso;
 - isteresi e incremento massimo per ciclo;
 - cambio della password `admin` (sezione Security collassabile).
@@ -626,8 +627,14 @@ In tutti i casi senza controllo attivo la linea/metrica **Target Tesla** scende 
 attive, il grafico mostra il target in watt come **Casa + target Tesla**; resta visibile anche se
 la Tesla è appena stata riavviata e il Wall Connector misura ancora 0 W. Se il ciclo salta perché
 la misura SolarEdge cloud non è ancora cambiata, il Target mostra comunque la corrente di ricarica
-tenuta. L'avvio e l'arresto della ricarica restano sempre manuali, salvo la sospensione/ripresa
-automatica abilitata dalla logica quota potenza con ALFA.
+tenuta. L'avvio e l'arresto della ricarica restano manuali per impostazione predefinita, salvo la
+sospensione/ripresa automatica abilitata dalla logica quota potenza con ALFA. L'admin può inoltre
+abilitare **Avvio automatico nella finestra solare** quando la misura Tesla arriva dal Wall
+Connector. Se la colonnina rileva una Tesla collegata ma ferma fuori fascia, il controller si arma
+senza interrogare il BLE; al primo ciclo di controllo nella finestra solare verifica lo stato via
+BLE e avvia la ricarica soltanto da `Stopped` o `NoPower`, mai da `Complete`. La corrente iniziale è
+la minima configurata, eventualmente ridotta per restare entro la quota potenza. Un arresto manuale
+eseguito durante la finestra attiva non viene riavviato automaticamente nello stesso giorno.
 
 Per inviare notifiche evento tramite endpoint WordPress:
 

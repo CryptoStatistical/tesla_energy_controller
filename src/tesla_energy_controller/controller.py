@@ -420,6 +420,90 @@ class EnergyController:
             and import_power_w > self.grid_import_limit_w
         )
 
+    def start_charging_from_snapshot(
+        self,
+        measurement: GridMeasurement,
+        car: ChargeState,
+        *,
+        projected_quarter_hour_import_w: float | None = None,
+        power_quota_limit_w: float | None = None,
+        power_quota_hysteresis_w: float = 0.0,
+        manual_override_amps: int | None = None,
+    ) -> Decision:
+        state = car.charging_state.casefold()
+        if car.is_charging:
+            return self._decision(
+                "hold",
+                "autostart non necessario: Tesla già in carica",
+                measurement=measurement,
+                car=car,
+                target_a=car.current_request_a,
+            )
+        if state == "complete":
+            return self._decision(
+                "skip",
+                "autostart non eseguito: ricarica completa",
+                measurement=measurement,
+                car=car,
+                target_a=0,
+            )
+        if state not in {"stopped", "no_power"}:
+            return self._decision(
+                "skip",
+                f"autostart non eseguito: stato Tesla {car.charging_state}",
+                measurement=measurement,
+                car=car,
+                target_a=0,
+            )
+        safety_decision = self._safety_decision(car, measurement)
+        if safety_decision is not None:
+            return safety_decision
+        if not measurement.fresh:
+            return self._stale_measurement_decision(measurement, car)
+
+        car_limit = car.current_request_max_a or self.max_charge_amps
+        upper = min(self.max_charge_amps, car_limit)
+        if manual_override_amps is not None:
+            upper = min(upper, manual_override_amps - 1)
+        target = max(0, min(self.min_charge_amps, upper))
+        if projected_quarter_hour_import_w is not None and power_quota_limit_w is not None:
+            voltage = car.voltage_v or self.nominal_phase_voltage_v
+            watts_per_amp = voltage * self.expected_phases
+            export_w = max(float(measurement.export_power_w or 0.0), 0.0)
+            available_w = max(
+                power_quota_limit_w
+                - power_quota_hysteresis_w
+                - projected_quarter_hour_import_w
+                + export_w,
+                0.0,
+            )
+            target = min(target, math.floor(available_w / watts_per_amp))
+        if target <= 0:
+            return self._decision(
+                "hold",
+                "autostart in attesa: margine quota insufficiente",
+                measurement=measurement,
+                car=car,
+                target_a=0,
+            )
+        if self.dry_run:
+            return self._decision(
+                "dry-run",
+                "autostart Tesla calcolato",
+                measurement=measurement,
+                car=car,
+                target_a=target,
+            )
+        self.vehicle.set_charging_amps(target)
+        self.vehicle.start_charging()
+        return self._decision(
+            "start",
+            "autostart: ricarica Tesla avviata",
+            measurement=measurement,
+            car=car,
+            target_a=target,
+        )
+
     def decide_minimum_from_snapshot(
         self,
         measurement: GridMeasurement,

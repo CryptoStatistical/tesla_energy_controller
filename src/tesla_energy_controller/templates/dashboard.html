@@ -548,6 +548,10 @@
             </div>
             <div><label for="manual_override_amps">Manual mode da (A)</label><input id="manual_override_amps" name="manual_override_amps" type="number" min="{{ hard.min_charge_amps }}" max="{{ hard.max_charge_amps }}" value="{{ current.manual_override_amps }}" required></div>
             <div><label for="min_charge_amps">Corrente minima (A)</label><input id="min_charge_amps" name="min_charge_amps" type="number" min="1" max="{{ hard.max_charge_amps }}" value="{{ current.min_charge_amps }}" required></div>
+            <label class="switch-row wide-field" for="autostart_enabled">
+              <span><strong>Avvio automatico nella finestra solare</strong><small>Se la Tesla viene fermata fuori fascia mentre è collegata, verifica via BLE all'apertura e riparte solo dallo stato Stopped. Richiede il monitoraggio Wall Connector.</small></span>
+              <input id="autostart_enabled" name="autostart_enabled" type="checkbox" value="on" {% if current.autostart_enabled %}checked{% endif %}>
+            </label>
           </div></div>
 
           <div class="subsection"><h3>Anomalie {{ 'elettrodomestici' if alfa_mode else 'device' }}</h3><div class="form-grid">

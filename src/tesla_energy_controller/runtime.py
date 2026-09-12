@@ -92,6 +92,7 @@ class RuntimeSettings:
     tesla_ble_command_timeout_seconds: int
     tesla_ble_retries: int
     tesla_ble_recovery_enabled: bool
+    autostart_enabled: bool
     anomaly_peak_threshold_w: float
     anomaly_device_patterns: str
     anomaly_device_groups: str
@@ -142,6 +143,7 @@ class RuntimeSettings:
             tesla_ble_command_timeout_seconds=settings.tesla_ble_command_timeout_seconds,
             tesla_ble_retries=settings.tesla_ble_retries,
             tesla_ble_recovery_enabled=True,
+            autostart_enabled=False,
             anomaly_peak_threshold_w=1500.0,
             anomaly_device_patterns=(
                 "forno, forni, pompa di calore, frigo, frighi, cucina, "
@@ -214,6 +216,7 @@ class RuntimeSettings:
                 tesla_ble_recovery_enabled=boolean(
                     values.get("tesla_ble_recovery_enabled")
                 ),
+                autostart_enabled=boolean(values.get("autostart_enabled")),
                 anomaly_peak_threshold_w=threshold_w,
                 anomaly_device_patterns=patterns_text,
                 anomaly_device_groups=groups_text,

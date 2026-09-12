@@ -263,6 +263,7 @@ def create_app(
         values.setdefault("alfa_grid_reading_enabled", "")
         values.setdefault("solar_source", runtime.current.solar_source)
         values.setdefault("tesla_ble_recovery_enabled", "")
+        values.setdefault("autostart_enabled", "")
         values.setdefault("error_email_enabled", "")
         values.setdefault("anomaly_email_enabled", "")
         # "Extra rete" è inserito in Ampere nel pannello: converti in W per il controllo.

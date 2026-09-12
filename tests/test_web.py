@@ -148,8 +148,29 @@ def test_runtime_defaults_enable_mail_and_ble_recovery(monkeypatch, tmp_path):
     assert runtime.current.error_email_enabled is True
     assert runtime.current.anomaly_email_enabled is True
     assert runtime.current.tesla_ble_recovery_enabled is True
+    assert runtime.current.autostart_enabled is False
     assert runtime.current.power_quota_target_w == 7000
     assert runtime.reporter.enabled is True
+
+
+def test_admin_can_enable_tesla_autostart(monkeypatch, tmp_path):
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+
+    with app.test_client() as client:
+        login(client)
+        page = client.get("/").text
+        assert 'id="autostart_enabled" name="autostart_enabled"' in page
+        token = csrf(page)
+        response = client.post(
+            "/settings",
+            data=valid_settings_payload(token, autostart_enabled="on"),
+            headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+        )
+
+    assert response.status_code == 200
+    assert runtime.current.autostart_enabled is True
+    assert RuntimeSettingsStore(runtime.hard.runtime_settings_file, runtime.hard).load().autostart_enabled
 
 
 def test_power_quota_pause_is_restored_from_hold_measurement_on_boot(monkeypatch, tmp_path):
@@ -2725,6 +2746,194 @@ def test_wall_connector_standby_outside_window_does_not_query_tesla_ble(
     assert status["tesla_power_w"] == 92
     assert status["tesla_ble_control_required"] is False
     assert status["target_a"] == 0
+
+
+def test_wall_connector_autostart_arms_outside_window_and_starts_at_opening(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        autostart_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+        min_charge_amps=3,
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.dry_run = False
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=400,
+        solar_power_w=1800,
+        import_power_w=400,
+        export_power_w=0,
+        source="mock",
+    )
+    ble_calls = {"count": 0}
+
+    def get_charge_state():
+        ble_calls["count"] += 1
+        return ChargeState(
+            charging_state="Stopped",
+            current_request_a=5,
+            current_request_max_a=16,
+            actual_current_a=0,
+            phases=3,
+            voltage_v=230,
+        )
+
+    runtime.controller.vehicle.get_charge_state = get_charge_state
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=92,
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+
+    outside = runtime.run_cycle(
+        datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+    started = runtime.run_cycle(
+        datetime(2026, 7, 3, 6, 5, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+
+    assert outside["action"] == "outside-window"
+    assert outside["autostart_pending"] is True
+    assert outside["tesla_ble_control_required"] is False
+    assert ble_calls["count"] == 1
+    assert started["action"] == "start"
+    assert started["target_a"] == 3
+    assert started["autostart_pending"] is False
+    assert started["automatic_charge_start"] is True
+    assert runtime.controller.vehicle.commands == [3, "start"]
+
+
+def test_wall_connector_autostart_preview_does_not_probe_ble(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        autostart_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=400,
+        solar_power_w=1800,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: (_ for _ in ()).throw(
+        AssertionError("La preview non deve interrogare il BLE per autostart")
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=92,
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+    outside = runtime.run_cycle(
+        datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome")),
+        control=False,
+        persist=False,
+    )
+    preview = runtime.run_cycle(
+        datetime(2026, 7, 3, 6, 5, tzinfo=ZoneInfo("Europe/Rome")),
+        control=False,
+        persist=False,
+    )
+
+    assert outside["autostart_pending"] is True
+    assert preview["action"] == "preview"
+    assert preview["autostart_pending"] is True
+    assert preview["tesla_ble_control_required"] is False
+
+
+def test_wall_connector_autostart_does_not_restart_complete_charge(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("TESLA_DATA_SOURCE", "wall-connector")
+    monkeypatch.setenv("WALL_CONNECTOR_HOST", "192.168.1.23")
+    app, _settings = application(monkeypatch, tmp_path)
+    runtime = app.extensions["energy_runtime"]
+    runtime.current = replace(
+        runtime.current,
+        autostart_enabled=True,
+        schedule_mode="fixed",
+        fixed_start_time="06:00",
+        fixed_end_time="19:00",
+    )
+    runtime.store.save(runtime.current)
+    runtime.controller.grid.read = lambda: GridMeasurement(
+        total_power_w=400,
+        solar_power_w=1800,
+        source="mock",
+    )
+    runtime.controller.vehicle.get_charge_state = lambda: ChargeState(
+        charging_state="Complete",
+        current_request_a=5,
+        current_request_max_a=16,
+        actual_current_a=0,
+        phases=3,
+        voltage_v=230,
+    )
+
+    class Wall:
+        @staticmethod
+        def read_vitals():
+            return WallConnectorVitals(
+                vehicle_connected=True,
+                contactor_closed=False,
+                grid_v=230,
+                vehicle_current_a=0.4,
+                phase_currents_a=(0.4, 0.0, 0.0),
+                power_w=92,
+                evse_state=9,
+            )
+
+    runtime.wall_connector = Wall()
+    runtime.run_cycle(
+        datetime(2026, 7, 2, 22, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+    complete = runtime.run_cycle(
+        datetime(2026, 7, 3, 6, 5, tzinfo=ZoneInfo("Europe/Rome")),
+        persist=False,
+    )
+
+    assert complete["action"] == "skip"
+    assert complete["target_a"] == 0
+    assert complete["autostart_pending"] is False
+    assert "ricarica completa" in complete["message"]
+    assert runtime.controller.vehicle.commands == []
 
 
 def test_wall_connector_logs_tesla_night_power_over_300_w(monkeypatch, tmp_path):

@@ -311,6 +311,7 @@ class WebRuntime:
         self._tesla_complete_ble_standby = False
         self._wall_charge_session_active: bool | None = None
         self._automatic_charge_start_active = False
+        self._autostart_pending = False
         self.last_status: dict = (
             self._status_from_measurement(latest_measurement[0])
             if latest_measurement
@@ -1069,7 +1070,22 @@ class WebRuntime:
                     )
                 )
                 complete_ble_standby = self._complete_ble_standby_active(wall_vitals)
-                if complete_ble_standby and not quota_resume_pending:
+                if not self.current.autostart_enabled or not self.current.enabled:
+                    self._autostart_pending = False
+                elif not wall_vitals.vehicle_connected:
+                    self._autostart_pending = False
+                elif complete_ble_standby:
+                    self._autostart_pending = False
+                elif not solar_window_active and not wall_charge_active:
+                    self._autostart_pending = True
+                autostart_probe_pending = bool(
+                    allow_quota_resume_probe
+                    and solar_window_active
+                    and self._autostart_pending
+                    and wall_vitals.vehicle_connected
+                    and not wall_charge_active
+                )
+                if complete_ble_standby and not quota_resume_pending and not autostart_probe_pending:
                     tesla_ble_control_required = False
                     tesla_ble_control_state = "standby"
                     tesla_ble_control_message = "Bluetooth in standby dopo carica completa"
@@ -1077,6 +1093,7 @@ class WebRuntime:
                     tesla_ble_control_required = wants_ble_control and (
                         wall_charge_active
                         or quota_resume_pending
+                        or autostart_probe_pending
                     )
                 self._threshold_event(
                     "wall_connector_unreachable",
@@ -1277,6 +1294,7 @@ class WebRuntime:
             ),
             "wall_connector_evse_state": wall_vitals.evse_state if wall_vitals is not None else None,
             "automatic_charge_start": self._automatic_charge_start_active,
+            "autostart_pending": self._autostart_pending,
         }
         return car, measurement, energy, appliances
 
@@ -1534,7 +1552,29 @@ class WebRuntime:
                         message = "Tesla non raggiungibile via BLE"
                         action = "tesla-offline"
                 else:
-                    if outside_window_wall_control:
+                    autostart_attempt = bool(
+                        control
+                        and window.active
+                        and self.current.autostart_enabled
+                        and self._autostart_pending
+                    )
+                    if autostart_attempt and not car.is_charging:
+                        decision = self.controller.start_charging_from_snapshot(
+                            control_measurement,
+                            car,
+                            projected_quarter_hour_import_w=(
+                                demand.projected_average_w if demand is not None else None
+                            ),
+                            power_quota_limit_w=effective_power_quota_w,
+                            power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
+                            manual_override_amps=self.current.manual_override_amps,
+                        )
+                        if car.charging_state.casefold() == "complete":
+                            self._autostart_pending = False
+                        elif decision.action == "start":
+                            self._autostart_pending = False
+                            self._automatic_charge_start_active = True
+                    elif outside_window_wall_control:
                         decision = self.controller.decide_minimum_from_snapshot(
                             control_measurement,
                             car,
@@ -1560,6 +1600,12 @@ class WebRuntime:
                             power_quota_hysteresis_w=self.current.power_quota_hysteresis_w,
                             ignore_manual_override=self._automatic_charge_start_active,
                         )
+                    if car.is_charging:
+                        self._autostart_pending = False
+                    energy["autostart_pending"] = self._autostart_pending
+                    energy["automatic_charge_start"] = (
+                        self._automatic_charge_start_active
+                    )
                     state = "ok"
                     message = decision.reason
                     action = decision.action
@@ -1894,6 +1940,8 @@ class WebRuntime:
         new_settings = RuntimeSettings.from_mapping(merged, self.hard)
         self.store.save(new_settings)
         self.current = new_settings
+        if not self.current.autostart_enabled:
+            self._autostart_pending = False
         self._apply_runtime_settings(self.current)
         self.refresh_mail_recipients()
         return new_settings
@@ -1902,6 +1950,8 @@ class WebRuntime:
         if enabled == self.current.enabled:
             return self.current
         self.current = replace(self.current, enabled=enabled)
+        if not enabled:
+            self._autostart_pending = False
         self.store.save(self.current)
         self._apply_runtime_settings(self.current)
         state = "attivato" if enabled else "disattivato"
