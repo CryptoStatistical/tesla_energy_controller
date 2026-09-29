@@ -5,7 +5,7 @@ import stat
 import time
 import zipfile
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -23,7 +23,21 @@ from tesla_energy_controller.vimar import VimarEnergyPoint
 from tesla_energy_controller.web import create_app
 
 
+class StorageTestClock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        # Keep retention aligned with the June/July 2026 scenarios in this module.
+        instant = cls(2026, 7, 15, 12, tzinfo=timezone.utc)
+        if tz is None:
+            return instant.astimezone().replace(tzinfo=None)
+        return instant.astimezone(tz)
+
+
 def application(monkeypatch, tmp_path):
+    # Freeze only the storage clock: retention still runs, while scheduler and
+    # cache freshness checks keep their own clocks and explicit cycle timestamps.
+    monkeypatch.setattr("tesla_energy_controller.storage.datetime", StorageTestClock)
+    monkeypatch.setenv("DATA_RETENTION_DAYS", "90")
     monkeypatch.setenv("MODE", "dry-run")
     monkeypatch.setenv("CONTROL_MODE", "solar-production")
     monkeypatch.setenv("ENERGY_SOURCE", "mock")

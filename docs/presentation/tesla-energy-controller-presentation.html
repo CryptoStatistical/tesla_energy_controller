@@ -2,6 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
+<meta name="description" content="Tesla Energy Controller: integrazione ALFA Sinapsi, SolarEdge, VIMAR e Tesla BLE. Aggiornamento 29 settembre 2026.">
 <title>Tesla Energy Controller — Presentazione tecnica</title>
 <style>
   :root{
@@ -42,6 +43,8 @@
     flex-direction:column;
   }
   .slide:last-child{ page-break-after:auto; }
+  .body svg{max-width:100%;height:auto;}
+  .twocol > *, .threecol > *{min-width:0;}
 
   /* ---------- Generic content slide chrome ---------- */
   .topbar{
@@ -138,8 +141,11 @@
 </style>
 </head>
 <body>
+<!-- Content reference: repository 58372e6, 2026-09-12; reviewed 2026-09-29.
+Sources: controller.py, web_runtime.py, runtime.py, config.py, dashboard.js,
+README.md, tests/test_controller.py, tests/test_web.py and network scripts. -->
 
-<!-- ============================ SLIDE 1 — COVER ============================ -->
+
 <section class="slide cover">
   <div class="grid-bg"></div>
   <div class="glowsun"></div>
@@ -180,12 +186,12 @@
 
   <div class="meta">
     <div><span class="lbl">Ambito</span><b>Autoconsumo solare</b>Ricarica EV controllata</div>
-    <div><span class="lbl">Piattaforma</span><b>Raspberry&nbsp;Pi · edge</b>Python · tutto in locale</div>
-    <div><span class="lbl">Documento</span><b>Presentazione tecnica</b>Architettura e funzionamento</div>
+    <div><span class="lbl">Piattaforma</span><b>Raspberry&nbsp;Pi · edge</b>Python · controllo locale</div>
+    <div><span class="lbl">Documento</span><b>Presentazione tecnica</b>Aggiornata al 29 settembre 2026</div>
   </div>
 </section>
 
-<!-- ============================ SLIDE 2 — SINTESI ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">In sintesi</div><h2>Che cos'è e a cosa serve</h2></div>
@@ -202,18 +208,18 @@
         più possibile dal sole, riducendo i prelievi dalla rete.</p>
         <ul class="clean" style="margin-top:24px;">
           <li><b>Obiettivo:</b> massimizzare l'autoconsumo dell'energia solare caricando l'auto con i kW che altrimenti finirebbero in rete.</li>
-          <li><b>Non invasivo:</b> di norma regola solo l'amperaggio di una ricarica <i>già avviata</i>; solo la logica <b>Quota Potenza</b> può sospendere/riprendere per rispettare il limite quartorario.</li>
+          <li><b>Controllo automatico:</b> regola gli ampere, può avviare nella finestra solare e sospendere/riprendere con la <b>Quota Potenza</b> ALFA.</li>
           <li><b>Sicuro per default:</b> parte in modalità <span class="chip">dry-run</span> — calcola la decisione ma non invia comandi finché non è validato sul campo.</li>
         </ul>
       </div>
       <div>
         <div class="card" style="padding:20px 24px;">
           <h3 class="blk">Le fonti di dato</h3>
-          <p class="note" style="margin-top:0;margin-bottom:14px;">Ogni ciclo combina letture indipendenti e locali:</p>
+          <p class="note" style="margin-top:0;margin-bottom:14px;">Il controller combina sorgenti locali e cloud:</p>
           <div style="display:flex;flex-direction:column;gap:11px;">
             <div style="display:flex;align-items:center;gap:14px;">
               <div style="width:42px;height:42px;border-radius:11px;background:#FFF4DF;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">☀️</div>
-              <div><b>SolarEdge</b> — produzione FV istantanea<br><span class="note" style="margin:0;">Modbus TCP · API cloud · portale web</span></div>
+              <div><b>SolarEdge</b> — produzione FV istantanea<br><span class="note" style="margin:0;">Web/cloud primario · Modbus TCP opzionale</span></div>
             </div>
             <div style="display:flex;align-items:center;gap:14px;">
               <div style="width:42px;height:42px;border-radius:11px;background:#F3E8FF;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;">🔌</div>
@@ -232,15 +238,15 @@
         <div class="metrics" style="margin-top:16px;">
           <div class="metric"><div class="v" style="color:var(--blue-d);">5<span class="u">min</span></div><div class="l">media EWMA e decisione</div></div>
           <div class="metric"><div class="v" style="color:var(--green);">690<span class="u">W</span></div><div class="l">per ogni ampere (3×230&nbsp;V)</div></div>
-          <div class="metric"><div class="v" style="color:var(--rasp);">≈5<span class="u">W</span></div><div class="l">consumo della Raspberry</div></div>
+          <div class="metric"><div class="v" style="color:var(--rasp);">1 / 3</div><div class="l">fasi configurabili</div></div>
         </div>
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">02 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">02 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 3 — PROBLEMA / OBIETTIVO ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Il contesto</div><h2>Il problema e l'obiettivo</h2></div>
@@ -251,12 +257,12 @@
     <div class="twocol">
       <div class="card" style="padding:24px 26px;">
         <span class="tag" style="background:#FDECEC;color:#B91C1C;">Il problema</span>
-        <h3 class="blk" style="margin-top:12px;">L'energia solare in eccesso viene "regalata" alla rete</h3>
+        <h3 class="blk" style="margin-top:12px;">Produzione solare e ricarica non sempre coincidono</h3>
         <ul class="clean" style="margin-top:14px;">
-          <li>Nelle ore centrali il FV produce più di quanto la casa consuma: il surplus viene immesso in rete a un valore basso.</li>
-          <li>La Tesla è un grande accumulatore: caricarla con quel surplus vale molto più che venderlo.</li>
+          <li>Quando il FV produce più di quanto la casa consuma, il surplus viene immesso in rete.</li>
+          <li>Usare il surplus per la Tesla aumenta l’autoconsumo. Il vantaggio economico dipende dalle tariffe.</li>
           <li>Caricare a corrente fissa spreca sole quando c'è poco, o preleva dalla rete quando la casa accende i carichi pesanti (pompa di calore, clima, forno…).</li>
-          <li>Per dosare bene serve sapere <b>in tempo reale quanto consuma davvero la casa</b> — ed è qui che entra VIMAR.</li>
+          <li>VIMAR misura i circuiti domestici. Con ALFA attiva, il contatore fornisce il <b>saldo reale di rete</b>.</li>
         </ul>
       </div>
       <div class="card" style="padding:24px 26px;">
@@ -264,7 +270,7 @@
         <h3 class="blk" style="margin-top:12px;">Inseguire il sole, rispettando la casa</h3>
         <ul class="clean" style="margin-top:14px;">
           <li><b>Autoconsumo prima di tutto:</b> assegnare alla Tesla la potenza fotovoltaica disponibile, al netto dei consumi domestici letti da VIMAR.</li>
-          <li><b>Quota potenza:</b> con il contatore ALFA, restare sotto la potenza media quartoraria contrattuale (limite hard); il solare più una quota extra di rete ammessa alza la corrente.</li>
+          <li><b>Quota potenza:</b> con il contatore ALFA, limitare la media quartoraria rispetto all’obiettivo configurato. L’extra rete è un target soft quando c’è solare.</li>
           <li><b>Stabilità:</b> variazioni morbide (max +2&nbsp;A per ciclo, isteresi) per non stressare auto e impianto.</li>
           <li><b>Trasparenza:</b> ogni decisione registrata, visibile su una dashboard e sull'app Smart&nbsp;Life.</li>
         </ul>
@@ -275,10 +281,10 @@
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">03 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">03 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 4 — ARCHITETTURA ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Visione d'insieme</div><h2>Architettura del sistema</h2></div>
@@ -306,7 +312,7 @@
       <path d="M340 181 C 420 181, 440 232, 470 236" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
       <path d="M340 287 C 420 287, 440 274, 470 272" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
       <path d="M340 393 C 420 393, 445 306, 470 300" stroke="#7C93AE" stroke-width="2.2" fill="none" marker-end="url(#a2)"/>
-      <text x="352" y="66" font-size="12" font-weight="700" fill="#C99000">Modbus TCP</text>
+      <text x="352" y="66" font-size="12" font-weight="700" fill="#C99000">HTTPS / Modbus</text>
       <text x="352" y="172" font-size="12" font-weight="700" fill="#7C3AED">Modbus TCP</text>
       <text x="352" y="278" font-size="12" font-weight="700" fill="#0EA5A4">wss + TLS</text>
       <text x="352" y="384" font-size="12" font-weight="700" fill="#E31937">BLE / HTTP</text>
@@ -326,7 +332,7 @@
       </g>
       <text x="62" y="83" font-size="24">☀️</text>
       <text x="100" y="71" font-size="17" font-weight="800" fill="#0F2238">Fotovoltaico</text>
-      <text x="100" y="91" font-size="12.5" fill="#5A6B80">SolarEdge · Modbus TCP · cloud</text>
+      <text x="100" y="91" font-size="12.5" fill="#5A6B80">SolarEdge web · Modbus opzionale</text>
 
       <text x="62" y="189" font-size="24">🔌</text>
       <text x="100" y="177" font-size="17" font-weight="800" fill="#0F2238">Contatore rete</text>
@@ -349,9 +355,9 @@
       <text x="585" y="230" text-anchor="middle" font-size="19" font-weight="800" fill="#fff">Raspberry Pi</text>
       <text x="585" y="252" text-anchor="middle" font-size="13.5" fill="#9FC2E8">Zero 2 W · Linux · systemd</text>
       <line x1="500" y1="268" x2="670" y2="268" stroke="#1f3c63" stroke-width="1.2"/>
-      <text x="585" y="290" text-anchor="middle" font-size="12.5" fill="#CFE0F4">campiona ~30&nbsp;s · EWMA e decide 5&nbsp;min</text>
+      <text x="585" y="290" text-anchor="middle" font-size="12.5" fill="#CFE0F4">EWMA e decisione ogni 5 min</text>
       <text x="585" y="310" text-anchor="middle" font-size="12.5" fill="#CFE0F4">logica di controllo · storage SQLite</text>
-      <text x="585" y="330" text-anchor="middle" font-size="12.5" fill="#CFE0F4">tutto in locale, in casa</text>
+      <text x="585" y="330" text-anchor="middle" font-size="12.5" fill="#CFE0F4">controllo e storico locali</text>
 
       <!-- OUTPUT nodes -->
       <g filter="url(#sh)">
@@ -377,13 +383,13 @@
       <text x="900" y="425" font-size="12.5" fill="#5A6B80">misure ed eventi (90 giorni)</text>
 
       <!-- legend bottom -->
-      <text x="40" y="478" font-size="13.5" fill="#5A6B80">Tutte le comunicazioni con auto e impianti sono <tspan font-weight="800" fill="#0F2238">locali e cifrate</tspan>; nessun dato sensibile lascia la rete di casa per funzionare.</text>
+      <text x="40" y="478" font-size="13.5" fill="#5A6B80">Controllo sulla Pi. <tspan font-weight="800" fill="#0F2238">SolarEdge web usa Internet</tspan>. Modbus TCP e Wall Connector HTTP operano sulla rete locale.</text>
     </svg>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">04 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">04 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 5 — RUOLO VIMAR ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Il cuore dell'integrazione</div><h2>Il ruolo del gateway VIMAR</h2></div>
@@ -438,10 +444,10 @@
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Integrazione API IP VIMAR By-me</span><span class="pageno">05 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Integrazione API IP VIMAR By-me</span><span class="pageno">05 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 6 — DATI VIMAR (BAR CHART REALE) ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Contatore di scambio · ALFA Sinapsi</div><h2>Quota Potenza: la media quartoraria</h2></div>
@@ -455,7 +461,7 @@
         <svg width="690" height="300" viewBox="0 0 690 300" font-family="Inter,Arial">
           <!-- legend -->
           <rect x="120" y="14" width="20" height="4" rx="2" fill="#E31937"/>
-          <text x="148" y="22" font-size="12.5" font-weight="700" fill="#E31937">Soglia quota · 6,9&nbsp;kW</text>
+          <text x="148" y="22" font-size="12.5" font-weight="700" fill="#E31937">Soglia esempio · 6,9&nbsp;kW</text>
           <rect x="368" y="14" width="20" height="4" rx="2" fill="#F6A609"/>
           <text x="396" y="22" font-size="12.5" font-weight="700" fill="#C99000">Media proiettata · 7,4&nbsp;kW</text>
           <!-- baseline -->
@@ -477,7 +483,7 @@
           </g>
         </svg>
         <p class="note">Le letture ALFA vengono aggregate in tre slot da 5&nbsp;minuti allineati al quarto d'ora.
-        Se la <b>proiezione</b> supera la soglia contrattuale, il controller riduce la corrente — o sospende — senza attendere l'isteresi.</p>
+        Se la <b>proiezione</b> supera l’obiettivo configurato, il controller riduce o sospende. Riprende quando torna margine, anche di notte.</p>
       </div>
       <div>
         <div class="card" style="padding:18px 22px;">
@@ -495,10 +501,10 @@
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Rispetto della potenza contrattuale del contatore</span><span class="pageno">06 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Obiettivo economico configurabile, distinto dalle protezioni elettriche</span><span class="pageno">06 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 7 — RUOLO RASPBERRY ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Il computer di campo</div><h2>Il ruolo della Raspberry Pi</h2></div>
@@ -510,12 +516,12 @@
       <div>
         <p class="lead" style="font-size:17px;">Una piccola <span class="hl">Raspberry Pi Zero&nbsp;2&nbsp;W</span>, collocata
         <b>vicino all'auto</b>, è il cervello sempre acceso del sistema: parla con tutti i dispositivi
-        e decide in autonomia, senza dipendere dal cloud.</p>
+        ed esegue localmente la logica di controllo.</p>
         <ul class="clean" style="margin-top:18px;">
           <li><b>Sempre vicina alla Tesla:</b> la portata del Bluetooth richiede prossimità; per questo la Pi sta in garage/box, non in centralino.</li>
           <li><b>Due servizi Linux autonomi</b> (systemd): il controller+dashboard e il bridge Tuya, riavviati automaticamente in caso di problemi.</li>
-          <li><b>Leggera e silenziosa:</b> nessun ventilatore, ~5&nbsp;W, gira 24/7 su una scheda da 512&nbsp;MB di RAM.</li>
-          <li><b>Tutto in locale:</b> letture, storico e decisioni restano in casa; il cloud serve solo per notifiche e app, se attivati.</li>
+          <li><b>Ripristino della rete:</b> watchdog Wi-Fi, riconnessione automatica e ripristino di rotta e neighbor ALFA.</li>
+          <li><b>SolarEdge web/cloud:</b> fonte FV primaria consigliata. Modbus è opzionale, con fallback web se configurato.</li>
         </ul>
       </div>
       <div>
@@ -539,17 +545,17 @@
           </svg>
         </div>
         <div class="metrics" style="margin-top:16px;">
-          <div class="metric"><div class="v" style="color:var(--rasp);font-size:28px;">2</div><div class="l">servizi systemd autonomi</div></div>
+          <div class="metric"><div class="v" style="color:var(--rasp);font-size:28px;">2</div><div class="l">servizi applicativi systemd</div></div>
           <div class="metric"><div class="v" style="color:var(--blue-d);font-size:28px;">90<span class="u">gg</span></div><div class="l">storico misure conservato</div></div>
-          <div class="metric"><div class="v" style="color:var(--green);font-size:28px;">0</div><div class="l">dipendenze dal cloud per decidere</div></div>
+          <div class="metric"><div class="v" style="color:var(--green);font-size:28px;">1<span class="u">min</span></div><div class="l">controllo gateway del watchdog</div></div>
         </div>
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">07 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">07 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 8 — COLLEGAMENTO TESLA ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Mobilità elettrica</div><h2>Il collegamento alla Tesla</h2></div>
@@ -565,11 +571,11 @@
           <li><b>Nessun account, password Tesla o cloud:</b> il BLE non richiede Fleet API, OAuth né dominio pubblico.</li>
           <li>Abbinamento sicuro: una chiave privata generata sulla Pi e autorizzata in auto appoggiando la <b>card NFC</b> Tesla, con il ruolo minimo <span class="chip">charging_manager</span>.</li>
           <li>La chiave privata <b>resta solo sulla Raspberry</b>: senza di essa nessuno può comandare l'auto.</li>
-          <li>In alternativa la potenza Tesla si legge dal <b>Wall Connector Gen&nbsp;3</b> locale (HTTP), senza svegliare l'auto.</li>
+          <li>Il <b>Wall Connector Gen&nbsp;3</b> misura potenza e connessione via HTTP locale. I comandi all’auto restano via BLE.</li>
         </ul>
       </div>
       <div class="card" style="padding:22px 26px;">
-        <h3 class="blk" style="font-size:16px;">Cosa fa — e cosa <u>non</u> fa</h3>
+        <h3 class="blk" style="font-size:16px;">Misura e controllo della ricarica</h3>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
           <div style="display:flex;gap:11px;align-items:flex-start;background:#E7F6EE;border-radius:10px;padding:11px 14px;">
             <span style="font-size:18px;">✓</span>
@@ -577,29 +583,53 @@
           </div>
           <div style="display:flex;gap:11px;align-items:flex-start;background:#E7F6EE;border-radius:10px;padding:11px 14px;">
             <span style="font-size:18px;">✓</span>
-            <div style="font-size:14.5px;color:#14532D;"><b>Imposta</b> solo l'amperaggio di ricarica (<span class="mono">charging-set-amps</span>).</div>
+            <div style="font-size:14.5px;color:#14532D;"><b>Regola</b> l’amperaggio di ricarica (<span class="mono">charging-set-amps</span>).</div>
           </div>
-          <div style="display:flex;gap:11px;align-items:flex-start;background:#FDECEC;border-radius:10px;padding:11px 14px;">
-            <span style="font-size:18px;">✕</span>
-            <div style="font-size:14.5px;color:#7F1D1D;"><b>Di norma non</b> avvia né ferma la carica e <b>non</b> sveglia l'auto; solo la <b>Quota Potenza</b> può sospendere/riprendere.</div>
+          <div style="display:flex;gap:11px;align-items:flex-start;background:#EAF2FB;border-radius:10px;padding:11px 14px;">
+            <span style="font-size:18px;">✓</span>
+            <div style="font-size:14.5px;color:#7F1D1D;"><b>Avvia</b> nella finestra solare con autostart abilitato. Con ALFA può <b>sospendere e riprendere</b> per quota potenza.</div>
           </div>
         </div>
-        <p class="note" style="margin-top:14px;">Prima di agire verifica che l'auto sia sveglia e in carica, che l'orologio sia
-        sincronizzato (NTP) e che fasi e tensione siano nei limiti. Gli errori BLE sono classificati
-        (distanza, Bluetooth, chiave, orologio, stato auto) per la diagnosi a distanza.</p>
+        <p class="note" style="margin-top:14px;">Con Wall Connector in standby evita letture BLE superflue. Alla disconnessione azzera potenza e target Tesla. Prima dei comandi verifica stato, dati e limiti elettrici.</p>
       </div>
     </div>
     <div class="metrics" style="margin-top:20px;">
-      <div class="metric"><div class="v" style="color:var(--tesla);font-size:26px;">230&nbsp;V × 3</div><div class="l">trifase → 690&nbsp;W per ampere</div></div>
-      <div class="metric"><div class="v" style="color:var(--blue-d);font-size:26px;">1&ndash;16&nbsp;A</div><div class="l">range gestito · minimo configurabile fino a 1&nbsp;A</div></div>
-      <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">2&nbsp;cmd</div><div class="l">massimo per ciclo · chiamate BLE serializzate</div></div>
+      <div class="metric"><div class="v" style="color:var(--tesla);font-size:26px;">1 o 3 fasi</div><div class="l">a 230 V: 230 o 690 W per ampere</div></div>
+      <div class="metric"><div class="v" style="color:var(--blue-d);font-size:26px;">Limiti</div><div class="l">hardware, auto e soglia override manuale</div></div>
+      <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">BLE</div><div class="l">chiamate serializzate e diagnostica errori</div></div>
       <div class="metric"><div class="v" style="color:var(--amber);font-size:26px;">NFC</div><div class="l">abbinamento una tantum con card Tesla</div></div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Protocollo veicoli ufficiale Tesla via BLE</span><span class="pageno">08 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Protocollo veicoli ufficiale Tesla via BLE</span><span class="pageno">08 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 9 — LOGICA / SICUREZZE ============================ -->
+<section class="slide">
+  <div class="topbar"><div><div class="kicker">Automazione della ricarica</div><h2>Avvio automatico nella finestra solare</h2></div><div class="pill">Aggiornamento 2026</div></div>
+  <div class="accent"></div><div class="body">
+  <p class="lead">L’opzione è <b>attiva per default</b> e disabilitabile dall’admin. Richiede la misura Tesla dal <b>Wall Connector</b>, il controller acceso e le verifiche BLE.</p>
+  <div class="twocol" style="margin-top:26px;">
+    <div class="card" style="padding:24px 26px;">
+      <h3 class="blk">Quando avvia</h3>
+      <ol style="margin:18px 0 0 22px;font-size:18px;line-height:1.55;">
+        <li style="margin-bottom:16px;">Fuori fascia rileva l’auto collegata e ferma, e prepara l’avvio senza interrogare il BLE.</li>
+        <li style="margin-bottom:16px;">Al primo ciclo utile nella finestra verifica lo stato Tesla via Bluetooth.</li>
+        <li>Da <b>Stopped</b> o <b>NoPower</b> imposta la corrente iniziale e invia il comando di avvio.</li>
+      </ol>
+    </div>
+    <div class="card" style="padding:24px 26px;">
+      <h3 class="blk">Vincoli e scelta dell’utente</h3>
+      <ul class="clean" style="margin-top:18px;">
+        <li>Parte dal minimo configurato, ridotto se la <b>quota potenza ALFA</b> lascia meno margine.</li>
+        <li>Con carica <b>Complete</b> non riavvia. Dopo un avvio riuscito consuma la richiesta di autostart.</li>
+        <li>L’arresto manuale durante la finestra non attiva un nuovo autostart nella stessa finestra.</li>
+        <li>In <b>dry-run</b> calcola l’avvio senza inviare comandi.</li>
+      </ul>
+    </div>
+  </div></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Autostart distinto dalla ripresa dopo una sospensione per quota</span><span class="pageno">09 / 16</span></div>
+</section>
+
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Il decisore</div><h2>La logica di controllo e le sicurezze</h2></div>
@@ -609,7 +639,7 @@
   <div class="body" style="padding-top:18px;">
     <div class="twocol" style="grid-template-columns:1.15fr .85fr;align-items:start;">
       <div class="card" style="padding:18px 24px;">
-        <h3 class="blk" style="font-size:16px;">Catena di verifiche prima di ogni comando</h3>
+        <h3 class="blk" style="font-size:16px;">Regolazione di una sessione già in carica</h3>
         <svg width="640" height="376" viewBox="0 0 640 376" font-family="Inter,Arial">
           <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2D7DD2"/></marker></defs>
           <g stroke="#2D7DD2" stroke-width="2.2" marker-end="url(#a4)">
@@ -664,8 +694,8 @@
             <li style="font-size:14px;"><b>Dry-run di default:</b> calcola ma non invia, finché non è validato sul campo.</li>
             <li style="font-size:14px;"><b>Salita lenta, discesa immediata:</b> +2&nbsp;A massimo per ciclo, riduzione subito.</li>
             <li style="font-size:14px;"><b>Isteresi 1&nbsp;A:</b> niente comandi per micro-variazioni.</li>
-            <li style="font-size:14px;"><b>Quota potenza &amp; override manuale:</b> resta sotto la soglia quartoraria ALFA; se l'utente alza la corrente, il sistema si fa da parte.</li>
-            <li style="font-size:14px;"><b>Fail-safe:</b> a ogni errore di rete o dato, nessun comando viene inviato.</li>
+            <li style="font-size:14px;"><b>Quota potenza &amp; override manuale:</b> limita il prelievo previsto. Alla soglia di override lascia il controllo all’utente e lo recupera quando rientra.</li>
+            <li style="font-size:14px;"><b>Fail-safe:</b> dati di controllo mancanti o non validi bloccano i comandi. Il monitoraggio disponibile continua.</li>
           </ul>
         </div>
         <div class="card" style="padding:14px 18px;margin-top:14px;background:#FFF8EC;border-color:#F3D9A6;">
@@ -675,10 +705,10 @@
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Logica di controllo conservativa</span><span class="pageno">09 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Logica di controllo conservativa</span><span class="pageno">10 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 10 — GIORNATA TIPO (CURVA) ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Esempio di funzionamento</div><h2>Una giornata tipo</h2></div>
@@ -697,7 +727,7 @@
         </defs>
         <!-- charging window shade 06:00-19:00 -->
         <rect x="170" y="20" width="760" height="250" fill="#EAF6F0" opacity="0.7"/>
-        <text x="550" y="40" text-anchor="middle" font-size="12.5" font-weight="700" fill="#15803D">finestra di ricarica 06:00 – 19:00</text>
+        <text x="550" y="40" text-anchor="middle" font-size="12.5" font-weight="700" fill="#15803D">finestra solare configurabile</text>
         <!-- axes -->
         <line x1="70" y1="270" x2="1070" y2="270" stroke="#C9D5E3" stroke-width="1.5"/>
         <line x1="70" y1="20" x2="70" y2="270" stroke="#C9D5E3" stroke-width="1.5"/>
@@ -707,7 +737,7 @@
           <text x="490" y="290">12</text><text x="650" y="290">15</text><text x="810" y="290">18</text>
           <text x="930" y="290">20</text><text x="1050" y="290">24</text>
         </g>
-        <text x="555" y="318" text-anchor="middle" font-size="12.5" fill="#5A6B80">ora del giorno</text>
+        <text x="555" y="318" text-anchor="middle" font-size="12.5" fill="#5A6B80">sequenza della giornata (schema non in scala)</text>
         <!-- y label left (kW) -->
         <g font-size="11" fill="#C99000" text-anchor="end">
           <text x="62" y="270">0</text><text x="62" y="190">3</text><text x="62" y="110">6</text><text x="62" y="40">9 kW</text>
@@ -736,13 +766,13 @@
         <span><span class="dot" style="background:#EAF6F0;border:1px solid #b6dcc7;"></span>Finestra di ricarica</span>
       </div>
       <p class="note" style="text-align:center;">Esempio illustrativo del comportamento atteso: la corrente Tesla insegue il sole ma si abbassa
-      quando la casa accende i carichi pesanti, mantenendo il prelievo dalla rete entro il limite.</p>
+      quando aumentano i carichi domestici. Schema qualitativo, non dati misurati. La finestra segue alba/tramonto o orari fissi.</p>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Comportamento illustrativo del controller</span><span class="pageno">10 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Comportamento illustrativo del controller</span><span class="pageno">11 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 11 — SNAPSHOT REALE ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Bilancio energetico · esempio</div><h2>Snapshot a mezzogiorno</h2></div>
@@ -756,11 +786,11 @@
         <svg width="690" height="250" viewBox="0 0 690 250" font-family="Inter,Arial">
           <!-- production bar -->
           <text x="0" y="44" font-size="13.5" font-weight="700" fill="#5A6B80">Sorgenti</text>
-          <!-- scale: 6731 W -> 600px, so 1W=0.0891px ; start x=80 -->
-          <rect x="80" y="30" width="586.6" height="34" rx="7" fill="#F6A609"/>
+          <!-- 6500 W = 600 px -->
+          <rect x="80" y="30" width="600" height="34" rx="7" fill="#F6A609"/>
           <text x="86" y="52" font-size="13.5" font-weight="800" fill="#fff">☀️ Fotovoltaico ~6.500 W</text>
-          <rect x="666.6" y="30" width="13.4" height="34" rx="3" fill="#64748B"/>
-          <text x="612" y="80" font-size="11.5" fill="#64748B">+ rete ~150 W</text>
+
+          <text x="612" y="80" font-size="11.5" fill="#64748B">rete 0 W</text>
 
           <!-- arrow down -->
           <g stroke="#C9D5E3" stroke-width="2"><line x1="370" y1="92" x2="370" y2="118" marker-end="url(#a5)"/></g>
@@ -768,24 +798,24 @@
 
           <!-- consumption bar -->
           <text x="0" y="158" font-size="13.5" font-weight="700" fill="#5A6B80">Utilizzi</text>
-          <rect x="80" y="144" width="230.8" height="34" rx="7" fill="#0EA5A4"/>
+          <rect x="80" y="144" width="240" height="34" rx="7" fill="#0EA5A4"/>
           <text x="86" y="166" font-size="13.5" font-weight="800" fill="#fff">🏠 Casa ~2.600 W</text>
-          <rect x="310.8" y="144" width="369.2" height="34" rx="7" fill="#E31937"/>
-          <text x="318" y="166" font-size="13.5" font-weight="800" fill="#fff">🚗 Tesla ~3.900 W (in ricarica)</text>
+          <rect x="320" y="144" width="360" height="34" rx="7" fill="#E31937"/>
+          <text x="328" y="166" font-size="13.5" font-weight="800" fill="#fff">🚗 Tesla ~3.900 W (in ricarica)</text>
 
           <!-- balance line -->
-          <text x="80" y="216" font-size="13.5" fill="#28384f">Bilancio: <tspan font-weight="800" fill="#0EA5A4">quasi tutta</tspan> la ricarica arriva dal sole; poca energia dalla rete (<tspan font-weight="800" fill="#64748B">export quasi nullo</tspan>).</text>
+          <text x="80" y="216" font-size="13.5" fill="#28384f">Bilancio: 6.500 W FV = 2.600 W casa + 3.900 W Tesla. Rete: 0 W.</text>
         </svg>
       </div>
       <div>
         <h3 class="blk" style="font-size:15px;margin-bottom:14px;">Ripartizione dei consumi</h3>
         <svg width="360" height="210" viewBox="0 0 360 210" font-family="Inter,Arial">
-          <!-- donut: total 6731 ; Tesla 61.5% , Casa 38.5% -->
+          <!-- 6500 W: Tesla 60%, Casa 40% -->
           <g transform="translate(105,105)">
             <circle r="74" fill="none" stroke="#0EA5A4" stroke-width="30"/>
-            <!-- Tesla arc 61.5% -->
+            <!-- Tesla arc 60% -->
             <circle r="74" fill="none" stroke="#E31937" stroke-width="30"
-                    stroke-dasharray="285.9 178.9" transform="rotate(-90)"/>
+                    stroke-dasharray="278.97 185.98" transform="rotate(-90)"/>
             <text x="0" y="-4" text-anchor="middle" font-size="22" font-weight="800" fill="#0F2238">~6.500</text>
             <text x="0" y="16" text-anchor="middle" font-size="12" fill="#5A6B80">W totali</text>
           </g>
@@ -797,15 +827,43 @@
           </g>
         </svg>
         <div class="metrics" style="margin-top:6px;">
-          <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">+0,9<span class="u">kW</span></div><div class="l">export mattutino tipico<br>prima dell'avvio carichi</div></div>
+          <div class="metric"><div class="v" style="color:var(--green);font-size:26px;">0<span class="u">W</span></div><div class="l">saldo rete nell’esempio<br>assenza di accumulo domestico</div></div>
         </div>
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Esempio di bilancio a mezzogiorno</span><span class="pageno">11 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Esempio di bilancio a mezzogiorno</span><span class="pageno">12 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 12 — COME È STATO REALIZZATO (AI) ============================ -->
+<section class="slide">
+  <div class="topbar"><div><div class="kicker">Interfaccia e assistenza</div><h2>Dashboard Tesla Remote Meter</h2></div><div class="pill">Aggiornamento 2026</div></div>
+  <div class="accent"></div><div class="body">
+  <p class="lead">Stato aggiornato ogni circa <b>30 secondi</b>, storico e decisioni ogni <b>5 minuti</b>. Dashboard e Smart Life condividono misure e stato del controller.</p>
+  <div class="twocol" style="margin-top:26px;">
+    <div class="card" style="padding:24px 26px;">
+      <h3 class="blk">Energia e stato Tesla</h3>
+      <ul class="clean" style="margin-top:18px;">
+        <li>Grafici Casa + Tesla e dettaglio elettrodomestici VIMAR, saldo rete e picco mensile della quota.</li>
+        <li>Presenza auto, sorgente di misura e disponibilità BLE separate. Potenza e target a zero alla disconnessione.</li>
+        <li>Legenda persistente, slider giornalieri sincronizzati e target distinto dalla corrente reale.</li>
+        <li>Con ALFA attiva, il saldo rete corregge il consumo casa e rende visibili i carichi non misurati da VIMAR.</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:24px 26px;">
+      <h3 class="blk">Diagnostica per l’admin</h3>
+      <ul class="clean" style="margin-top:18px;">
+        <li>Riepilogo servizi, scheduler, Wi-Fi, Bluetooth, sorgenti energia, Tuya e database.</li>
+        <li><b>Verifica servizi</b> legge realmente SolarEdge web, anche se la fonte primaria è Modbus.</li>
+        <li>La verifica mantiene Tesla e bus Modbus passivi, evitando risvegli e sessioni Modbus aggiuntive.</li>
+        <li>Backup e ripristino di database e configurazione dal pannello admin.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note" style="margin-top:18px;">Tesla Remote Meter è il nome della dashboard di questo progetto indipendente. Il software non sostituisce il dispositivo hardware certificato Tesla.</p></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Monitoraggio disponibile anche con controllo ricarica spento</span><span class="pageno">13 / 16</span></div>
+</section>
+
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Metodo di sviluppo</div><h2>Realizzato con Claude e Codex</h2></div>
@@ -844,17 +902,17 @@
         <div style="font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#5A6B80;font-weight:700;">Metodo: specifica → test → implementazione → collaudo dry-run</div>
       </div>
       <div class="metrics" style="margin-top:14px;">
-        <div class="metric"><div class="v" style="color:var(--blue-d);font-size:30px;">21</div><div class="l">moduli Python (~8.700 righe)</div></div>
-        <div class="metric"><div class="v" style="color:var(--green);font-size:30px;">157</div><div class="l">test automatici · 9 suite</div></div>
-        <div class="metric"><div class="v" style="color:var(--rasp);font-size:30px;">11</div><div class="l">script di deploy / provisioning</div></div>
+        <div class="metric"><div class="v" style="color:var(--blue-d);font-size:30px;">22</div><div class="l">moduli Python nel package</div></div>
+        <div class="metric"><div class="v" style="color:var(--green);font-size:30px;">213</div><div class="l">casi di test raccolti · 11 file</div></div>
+        <div class="metric"><div class="v" style="color:var(--rasp);font-size:30px;">13</div><div class="l">script di gestione e provisioning</div></div>
         <div class="metric"><div class="v" style="color:var(--amber);font-size:30px;">6</div><div class="l">sistemi integrati (FV · rete · casa · auto · cloud)</div></div>
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Sviluppo assistito da IA con revisione umana</span><span class="pageno">12 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Sviluppo assistito da IA con revisione umana</span><span class="pageno">14 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 13 — SICUREZZA / PRIVACY ============================ -->
+
 <section class="slide">
   <div class="topbar">
     <div><div class="kicker">Affidabilità</div><h2>Sicurezza, privacy e robustezza</h2></div>
@@ -867,16 +925,16 @@
         <div style="font-size:26px;">🔒</div>
         <h3 class="blk" style="font-size:16px;margin-top:8px;">Dati e credenziali</h3>
         <ul class="clean" style="margin-top:10px;">
-          <li style="font-size:13.5px;">Chiavi VIMAR, Tesla e credenziali (ALFA, SolarEdge) solo sulla Pi, permessi file ristretti (0600).</li>
-          <li style="font-size:13.5px;">VIN, password e token <b>mai mostrati</b> in dashboard né nei report.</li>
-          <li style="font-size:13.5px;">Tutte le connessioni locali cifrate (TLS / BLE autenticato).</li>
+          <li style="font-size:13.5px;">Chiavi e credenziali in file locali protetti. I backup di configurazione possono contenere segreti.</li>
+          <li style="font-size:13.5px;">Dashboard e diagnostica applicano mascheramento dei dati sensibili.</li>
+          <li style="font-size:13.5px;">VIMAR usa TLS e Tesla comandi BLE autenticati. Modbus TCP e HTTP locale non sono cifrati.</li>
         </ul>
       </div>
       <div class="card" style="padding:20px 22px;">
         <div style="font-size:26px;">🛡️</div>
         <h3 class="blk" style="font-size:16px;margin-top:8px;">Accesso e rete</h3>
         <ul class="clean" style="margin-top:10px;">
-          <li style="font-size:13.5px;">Dashboard in ascolto solo in locale; accesso da remoto via <b>tunnel SSH</b>.</li>
+          <li style="font-size:13.5px;">Ascolto web configurabile: loopback o LAN. Per accesso remoto protetto si può usare un <b>tunnel SSH</b>.</li>
           <li style="font-size:13.5px;">Due ruoli: <b>admin</b> (configura) e <b>viewer</b> (osserva e accende/spegne).</li>
           <li style="font-size:13.5px;">Storico cancellato automaticamente dopo 90 giorni.</li>
         </ul>
@@ -885,8 +943,8 @@
         <div style="font-size:26px;">⚙️</div>
         <h3 class="blk" style="font-size:16px;margin-top:8px;">Robustezza operativa</h3>
         <ul class="clean" style="margin-top:10px;">
-          <li style="font-size:13.5px;">Ritenta gli errori transitori (BLE/rete) con attese crescenti.</li>
-          <li style="font-size:13.5px;">In caso di guasto persistente invia un <b>report e-mail</b> diagnostico.</li>
+          <li style="font-size:13.5px;">Watchdog Wi-Fi e dispatcher ripristinano la rete. Il journal persistente conserva la diagnostica.</li>
+          <li style="font-size:13.5px;">Diagnostica admin dei servizi e <b>report e-mail</b> se configurati.</li>
           <li style="font-size:13.5px;">Servizi riavviati da systemd; il monitoraggio continua anche a controller spento.</li>
         </ul>
       </div>
@@ -898,15 +956,15 @@
           <b style="color:#FFC233;">Confine chiaro di responsabilità.</b>
           Il sistema è un <b style="color:#fff;">controllo applicativo</b> dell'energia: ottimizza la ricarica, ma non
           sostituisce in alcun modo le protezioni elettriche dell'impianto, il dimensionamento dei cavi o un
-          load-balancing certificato. L'avvio e l'arresto della ricarica restano sempre <b style="color:#fff;">manuali</b>.
+          load-balancing certificato. L’avvio automatico è configurabile e ALFA può gestire sospensione/ripresa per quota potenza.
         </div>
       </div>
     </div>
   </div>
-  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">13 / 14</span></div>
+  <div class="footer"><span><b>Tesla Energy Controller</b> · Presentazione tecnica</span><span class="pageno">15 / 16</span></div>
 </section>
 
-<!-- ============================ SLIDE 14 — STATO / CHIUSURA ============================ -->
+
 <section class="slide cover" style="justify-content:flex-start;">
   <div class="grid-bg"></div>
   <div class="glowsun" style="opacity:.7;"></div>
@@ -915,31 +973,31 @@
       <div class="brandmark">✓</div>
       <div class="bt">Stato del progetto &nbsp;·&nbsp; Roadmap</div>
     </div>
-    <h1 style="font-size:50px;">Pronto per l'<span class="accentword">esercizio</span></h1>
+    <h1 style="font-size:50px;">Stato del <span class="accentword">progetto</span></h1>
     <div class="twocol" style="margin-top:34px;gap:34px;">
       <div>
-        <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;margin-bottom:14px;">Già attivo oggi</div>
+        <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;margin-bottom:14px;">Funzioni disponibili</div>
         <ul class="clean" style="color:#dbe8f7;">
-          <li style="color:#dbe8f7;"><b style="color:#fff;">Raspberry Pi</b> collegata a SolarEdge, contatore ALFA, VIMAR e Tesla.</li>
-          <li style="color:#dbe8f7;"><b style="color:#fff;">Dashboard web</b>, <b style="color:#fff;">Quota Potenza</b> e bridge Smart Life operativi.</li>
+          <li style="color:#dbe8f7;">Integrazioni <b style="color:#fff;">SolarEdge, ALFA, VIMAR e Tesla BLE</b> su Raspberry Pi.</li>
+          <li style="color:#dbe8f7;"><b style="color:#fff;">Tesla Remote Meter</b>: dashboard, diagnostica admin e bridge Smart Life.</li>
           <li style="color:#dbe8f7;">Lettura <b style="color:#fff;">per circuito</b> e snapshot energetici storicizzati in SQLite.</li>
-          <li style="color:#dbe8f7;">Funzionamento in <b style="color:#fff;">dry-run</b> per validazione sul campo.</li>
+          <li style="color:#dbe8f7;"><b style="color:#fff;">Autostart solare</b>, ripresa da quota e recupero dell’override manuale.</li>
         </ul>
       </div>
       <div>
         <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#9FC2E8;font-weight:700;margin-bottom:14px;">Prossimi passi</div>
         <ul class="clean" style="color:#dbe8f7;">
-          <li style="color:#dbe8f7;">Passaggio a <b style="color:#fff;">modalità live</b> dopo conferma di segno potenza, fasi e decisioni.</li>
+          <li style="color:#dbe8f7;">Collaudo sulla propria installazione in <b style="color:#fff;">dry-run</b> prima di attivare i comandi live.</li>
           <li style="color:#dbe8f7;">Validazione dei registri diagnostici <b style="color:#fff;">ALFA</b> (fasce, energie F1/F2/F3).</li>
-          <li style="color:#dbe8f7;">Affinamento della finestra solare <b style="color:#fff;">stagionale</b> (alba/tramonto).</li>
+          <li style="color:#dbe8f7;">Possibile sviluppo: valutare con Sinapsi un’integrazione <b style="color:#fff;">ALFA e Tesla via Bluetooth</b>.</li>
         </ul>
       </div>
     </div>
   </div>
   <div class="meta" style="bottom:46px;">
     <div><span class="lbl">Progetto</span><b>Tesla Energy Controller</b>Autoconsumo solare · edge</div>
-    <div><span class="lbl">Piattaforma</span><b>Raspberry Pi · Python</b>Tutto in locale, cifrato</div>
-    <div><span class="lbl">Grazie</span><b>Domande?</b>Demo e documentazione tecnica</div>
+    <div><span class="lbl">Piattaforma</span><b>Raspberry Pi · Python</b>Decisioni e storico locali</div>
+    <div><span class="lbl">Codice pubblico</span><b>GitHub / CryptoStatistical</b><a href="https://github.com/CryptoStatistical/tesla_energy_controller" style="color:#CFE0F4;">tesla_energy_controller</a></div>
   </div>
 </section>
 
