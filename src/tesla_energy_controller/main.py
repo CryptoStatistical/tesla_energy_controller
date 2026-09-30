@@ -290,25 +290,19 @@ def run_tuya_meter(
     runtime_store = RuntimeSettingsStore(settings.runtime_settings_file, settings)
 
     def load_controller_enabled() -> bool:
-        try:
-            return runtime_store.load().enabled
-        except Exception:
-            LOG.exception("tuya_runtime_settings_load_failed")
-            return True
+        return runtime_store.load().enabled
 
     def set_controller_enabled(enabled: bool) -> None:
-        try:
-            current = runtime_store.load()
-            if current.enabled != enabled:
-                runtime_store.save(replace(current, enabled=enabled))
-            LOG.info("tuya_controller_switch enabled=%s", enabled)
-        except Exception:
-            LOG.exception("tuya_runtime_settings_save_failed")
+        current = runtime_store.load()
+        if current.enabled != enabled:
+            runtime_store.save(replace(current, enabled=enabled))
+        LOG.info("tuya_controller_switch enabled=%s", enabled)
 
     bridge = TuyaEnergyMeterBridge(
         settings,
         controller,
         on_switch=set_controller_enabled,
+        get_switch=load_controller_enabled,
         meter_enabled=load_controller_enabled(),
     )
     LOG.info(

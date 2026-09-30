@@ -1,10 +1,16 @@
 import hashlib
 import hmac
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
+
+from tesla_energy_controller.config import Settings
 from tesla_energy_controller.live_status import write_status_cache
+from tesla_energy_controller.main import run_tuya_meter
 from tesla_energy_controller.models import ChargeState, GridMeasurement
+from tesla_energy_controller.runtime import RuntimeSettingsStore
 from tesla_energy_controller.storage import EnergyDatabase
 from tesla_energy_controller.tuya import (
     MqttMessage,
@@ -206,6 +212,122 @@ def test_property_get_returns_requested_values_only():
     assert client.responses == [
         ("get-1", {"meter_switch": False, "tesla_state": "disconnected"})
     ]
+
+
+@pytest.mark.parametrize("source", ["cache", "database", "live"])
+def test_switch_reports_follow_runtime_changes_with_stale_measurements(tmp_path, source):
+    settings = SimpleNamespace(
+        energy_source="mock",
+        energy_database_file=str(tmp_path / "energy.sqlite3"),
+        tuya_average_samples=1,
+    )
+    store_state = {"enabled": True}
+    bridge = TuyaEnergyMeterBridge(
+        settings,
+        None,
+        get_switch=lambda: store_state["enabled"],
+        meter_enabled=False,
+    )
+    stale_measurement = {
+        "observed_at": "2026-07-01T12:00:00+02:00",
+        "controller_enabled": False,
+        "solar_power_w": 1800,
+        "vimar_power_w": 100,
+        "house_power_w": 100,
+        "tesla_power_w": 0,
+        "total_consumption_w": 100,
+        "import_power_w": 0,
+        "export_power_w": 1700,
+    }
+    if source == "cache":
+        write_status_cache(settings, stale_measurement)
+    elif source == "database":
+        bridge.database.add_measurement(stale_measurement, [])
+
+    assert bridge.properties()["meter_switch"] is True
+    store_state["enabled"] = False
+    assert bridge.properties()["meter_switch"] is False
+    store_state["enabled"] = True
+    assert bridge.properties()["meter_switch"] is True
+
+
+def test_switch_read_failure_preserves_last_known_state(caplog):
+    def read_switch():
+        raise OSError("settings unavailable")
+
+    bridge = TuyaEnergyMeterBridge(
+        SimpleNamespace(energy_source="mock", tuya_average_samples=1),
+        None,
+        get_switch=read_switch,
+        meter_enabled=False,
+    )
+
+    assert bridge.properties()["meter_switch"] is False
+    assert "tuya_runtime_settings_load_failed" in caplog.text
+
+
+@pytest.mark.parametrize("save_fails", [False, True])
+def test_tuya_runner_syncs_shared_switch_and_acknowledges_only_saved_commands(
+    monkeypatch, tmp_path, save_fails
+):
+    settings = replace(
+        Settings.from_env(),
+        runtime_settings_file=str(tmp_path / "runtime.json"),
+        energy_database_file=str(tmp_path / "energy.sqlite3"),
+        tuya_device_id="device123",
+        tuya_device_secret="secret123",
+    )
+    store = RuntimeSettingsStore(settings.runtime_settings_file, settings)
+    store.save(replace(store.load(), enabled=True))
+    clock = [0.0]
+    monkeypatch.setattr("tesla_energy_controller.main.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("tesla_energy_controller.main.signal.signal", lambda *_args: None)
+    reports = []
+    responses = []
+
+    class Client:
+        property_set_topic = "tylink/device123/thing/property/set"
+
+        def __init__(self, _config):
+            pass
+
+        def connect(self):
+            # A dashboard change after bridge creation must appear in reports.
+            store.save(replace(store.load(), enabled=False))
+            if save_fails:
+                def fail_save(_self, _settings):
+                    raise OSError("settings are read-only")
+
+                monkeypatch.setattr(RuntimeSettingsStore, "save", fail_save)
+
+        def subscribe_control_topics(self):
+            pass
+
+        def report_properties(self, properties):
+            reports.append(properties)
+
+        def loop_once(self, timeout):
+            clock[0] = 2.0
+            return MqttMessage(
+                self.property_set_topic,
+                json.dumps({"msgId": "set-1", "data": {"meter_switch": True}}).encode(),
+            )
+
+        def respond_property_set(self, msg_id, code=0):
+            responses.append((msg_id, code))
+
+        def ping_if_needed(self):
+            pass
+
+        def disconnect(self):
+            pass
+
+    monkeypatch.setattr("tesla_energy_controller.tuya.TuyaLinkMqttClient", Client)
+    run_tuya_meter(settings, None, duration_seconds=1)
+
+    assert [report["meter_switch"] for report in reports] == [False, not save_fails]
+    assert store.load().enabled is (not save_fails)
+    assert responses == [("set-1", 1 if save_fails else 0)]
 
 
 def test_property_get_also_reports_full_current_values():

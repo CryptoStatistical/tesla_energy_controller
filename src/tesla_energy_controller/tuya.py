@@ -370,11 +370,13 @@ class TuyaEnergyMeterBridge:
         controller: EnergyController,
         *,
         on_switch: Callable[[bool], None] | None = None,
+        get_switch: Callable[[], bool] | None = None,
         meter_enabled: bool = True,
     ) -> None:
         self.settings = settings
         self.controller = controller
         self.on_switch = on_switch
+        self.get_switch = get_switch
         self.meter_enabled = meter_enabled
         database_file = getattr(settings, "energy_database_file", None) if settings else None
         self.database = EnergyDatabase(database_file) if database_file else None
@@ -382,6 +384,13 @@ class TuyaEnergyMeterBridge:
         self._samples: deque[dict[str, Any]] = deque(maxlen=max(1, int(sample_count)))
 
     def properties(self) -> dict[str, Any]:
+        # The web service can change the shared setting while this bridge stays
+        # connected. Measurement caches may still describe an older cycle.
+        if self.get_switch is not None:
+            try:
+                self.meter_enabled = self.get_switch()
+            except Exception:
+                LOG.exception("tuya_runtime_settings_load_failed")
         status_properties = self._read_status_properties()
         if status_properties is not None:
             self._samples.clear()
@@ -555,11 +564,18 @@ class TuyaEnergyMeterBridge:
             if isinstance(raw_enabled, dict) and "value" in raw_enabled:
                 raw_enabled = raw_enabled["value"]
             if isinstance(raw_enabled, str):
-                self.meter_enabled = raw_enabled.strip().casefold() in {"1", "true", "on", "yes"}
+                enabled = raw_enabled.strip().casefold() in {"1", "true", "on", "yes"}
             else:
-                self.meter_enabled = bool(raw_enabled)
-            if self.on_switch is not None:
-                self.on_switch(self.meter_enabled)
+                enabled = bool(raw_enabled)
+            try:
+                if self.on_switch is not None:
+                    self.on_switch(enabled)
+            except Exception:
+                LOG.exception("tuya_runtime_settings_save_failed")
+                client.respond_property_set(msg_id, 1)
+                client.report_properties(self.properties())
+                return
+            self.meter_enabled = enabled
             LOG.info("tuya_meter_switch enabled=%s", self.meter_enabled)
         client.respond_property_set(msg_id, 0)
         client.report_properties(self.properties())

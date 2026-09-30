@@ -709,6 +709,10 @@ Tesla arriva dal Wall Connector, Tuya pubblica quel valore salvato/cache; se arr
 disponibile la stessa capability Bluetooth del servizio principale. L'unità systemd include quindi
 `CAP_NET_ADMIN` come il servizio web. `meter_switch=false` da Tuya disabilita il controller di
 ricarica ma lascia attivo il monitoraggio FV/casa su Smart Life.
+Lo switch abilita/disabilita la regolazione automatica: non invia un comando di arresto alla
+Tesla. Ogni report rilegge lo stato dalla configurazione runtime condivisa, così le modifiche
+dal pannello web si riflettono anche su Tuya. Il bridge conferma un comando solo dopo averlo
+salvato; il servizio web lo recepisce al successivo aggiornamento delle impostazioni.
 
 I report proprietà Tuya sono inviati con MQTT QoS 1 e `sys.ack=1`; il bridge ascolta anche
 `property/report_response`, così eventuali rifiuti del cloud finiscono nel journal del servizio.

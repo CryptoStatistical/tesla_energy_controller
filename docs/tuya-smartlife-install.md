@@ -43,6 +43,15 @@ SQLite/Wall Connector, not from waking the car.
 
 `meter_switch=false` disables the charge controller runtime switch, but the
 Tuya bridge stays online and keeps reporting the solar/house meter values.
+It does not send a Tesla charging-stop command. Enabling it allows the scheduler
+to control charging when the configured window and vehicle conditions permit.
+
+The switch reports use the shared runtime settings file, so changes made from
+the web dashboard also appear in Smart Life on the next report. Measurement
+caches do not override the switch. A Tuya command is acknowledged as successful
+only after the runtime setting has been saved; the web service reads the change
+on its next settings refresh. Save failures produce an error response and the
+`tuya_runtime_settings_save_failed` journal entry.
 
 Tuya reports prefer the fresh dashboard status cache, then fall back to the
 latest SQLite measurement. This keeps Smart Life responsive on app open without

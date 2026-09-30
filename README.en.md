@@ -321,6 +321,12 @@ measurement, so opening Smart Life can show recent values without forcing new So
 reads. `TUYA_REPORT_INTERVAL_SECONDS=10` keeps the app responsive while the five-minute SQLite
 sampling cadence stays unchanged.
 
+`meter_switch` enables or disables automatic charge control while energy monitoring continues.
+Turning it off does not send a Tesla charging-stop command. Each report reads the switch from
+the shared runtime settings, including changes made from the web dashboard. Commands are
+acknowledged as successful only after saving; the web service applies the change on its next
+settings refresh.
+
 Property reports are published with MQTT QoS 1 and Tuya `sys.ack=1`; the bridge subscribes to
 `property/report_response`, so cloud-side report failures are visible in the service journal.
 
